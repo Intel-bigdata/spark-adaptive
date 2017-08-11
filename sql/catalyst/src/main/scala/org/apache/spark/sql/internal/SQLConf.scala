@@ -164,6 +164,13 @@ object SQLConf {
     .longConf
     .createWithDefault(10L * 1024 * 1024)
 
+  val ADAPTIVE_BROADCASTJOIN_THRESHOLD = buildConf("spark.sql.adaptiveBroadcastJoinThreshold")
+    .doc("Configures the maximum size in bytes for a table that will be broadcast to all worker " +
+      "nodes when performing a join in adaptive exeuction mode. If not set, it equals to " +
+      "spark.sql.autoBroadcastJoinThreshold")
+    .longConf
+    .createOptional
+
   val LIMIT_SCALE_UP_FACTOR = buildConf("spark.sql.limit.scaleUpFactor")
     .internal()
     .doc("Minimal increase rate in number of partitions between attempts when executing a take " +
@@ -1041,6 +1048,9 @@ class SQLConf extends Serializable with Logging {
     getConf(SUBEXPRESSION_ELIMINATION_ENABLED)
 
   def autoBroadcastJoinThreshold: Long = getConf(AUTO_BROADCASTJOIN_THRESHOLD)
+
+  def adaptiveBroadcastJoinThreshold: Long = getConf(ADAPTIVE_BROADCASTJOIN_THRESHOLD).getOrElse(
+    autoBroadcastJoinThreshold)
 
   def limitScaleUpFactor: Int = getConf(LIMIT_SCALE_UP_FACTOR)
 

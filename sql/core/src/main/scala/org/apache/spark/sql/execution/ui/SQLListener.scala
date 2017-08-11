@@ -44,6 +44,13 @@ case class SparkListenerSQLExecutionStart(
   extends SparkListenerEvent
 
 @DeveloperApi
+case class SparkListenerSQLAdaptiveExecutionUpdate(
+    executionId: Long,
+    physicalPlanDescription: String,
+    sparkPlanInfo: SparkPlanInfo)
+  extends SparkListenerEvent
+
+@DeveloperApi
 case class SparkListenerSQLExecutionEnd(executionId: Long, time: Long)
   extends SparkListenerEvent
 
@@ -285,6 +292,19 @@ class SQLListener(conf: SparkConf) extends SparkListener with Logging {
         activeExecutions(executionId) = executionUIData
         _executionIdToData(executionId) = executionUIData
       }
+    case SparkListenerSQLAdaptiveExecutionUpdate(executionId, physicalPlanDescription,
+      sparkPlanInfo) =>
+      val physicalPlanGraph = SparkPlanGraph(sparkPlanInfo)
+      val sqlPlanMetrics = physicalPlanGraph.allNodes.flatMap { node =>
+        node.metrics.map(metric => metric.accumulatorId -> metric)
+      }
+      synchronized {
+        activeExecutions.get(executionId).foreach { executionUIData =>
+          executionUIData.physicalPlanDescription = physicalPlanDescription
+          executionUIData.physicalPlanGraph = physicalPlanGraph
+          executionUIData.accumulatorMetrics = sqlPlanMetrics.toMap
+        }
+      }
     case SparkListenerSQLExecutionEnd(executionId, time) => synchronized {
       _executionIdToData.get(executionId).foreach { executionUIData =>
         executionUIData.completionTime = Some(time)
@@ -425,9 +445,9 @@ private[ui] class SQLExecutionUIData(
     val executionId: Long,
     val description: String,
     val details: String,
-    val physicalPlanDescription: String,
-    val physicalPlanGraph: SparkPlanGraph,
-    val accumulatorMetrics: Map[Long, SQLPlanMetric],
+    var physicalPlanDescription: String,
+    var physicalPlanGraph: SparkPlanGraph,
+    var accumulatorMetrics: Map[Long, SQLPlanMetric],
     val submissionTime: Long) {
 
   var completionTime: Option[Long] = None

@@ -36,6 +36,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{Predicate => GenPredic
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution.metric.SQLMetric
+import org.apache.spark.sql.execution.statsEstimation.{SparkPlanStats, Statistics}
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.util.ThreadUtils
 
@@ -44,7 +45,11 @@ import org.apache.spark.util.ThreadUtils
  *
  * The naming convention is that physical operators end with "Exec" suffix, e.g. [[ProjectExec]].
  */
-abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializable {
+abstract class SparkPlan
+  extends QueryPlan[SparkPlan]
+    with SparkPlanStats
+    with Logging
+    with Serializable {
 
   /**
    * A handle to the SQL Context that was used to create this plan.   Since many operators need
@@ -400,6 +405,9 @@ object SparkPlan {
 trait LeafExecNode extends SparkPlan {
   override final def children: Seq[SparkPlan] = Nil
   override def producedAttributes: AttributeSet = outputSet
+
+  /** LeafExec nodes that can survive analysis must define their own statistics. */
+  def computeStats(): Statistics = throw new UnsupportedOperationException
 }
 
 object UnaryExecNode {

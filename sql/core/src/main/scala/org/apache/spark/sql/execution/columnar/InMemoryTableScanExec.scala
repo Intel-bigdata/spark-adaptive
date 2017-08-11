@@ -25,6 +25,7 @@ import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.physical.{HashPartitioning, Partitioning}
 import org.apache.spark.sql.execution.LeafExecNode
 import org.apache.spark.sql.execution.metric.SQLMetrics
+import org.apache.spark.sql.execution.statsEstimation.Statistics
 import org.apache.spark.sql.types.UserDefinedType
 
 
@@ -201,5 +202,10 @@ case class InMemoryTableScanExec(
       }
       columnarIterator
     }
+  }
+
+  override def computeStats(): Statistics = {
+    val stats = relation.computeStats()
+    Statistics(stats.sizeInBytes, stats.rowCount)
   }
 }
