@@ -36,20 +36,22 @@ private[spark] class BlockStoreShuffleReader[K, C](
     serializerManager: SerializerManager = SparkEnv.get.serializerManager,
     blockManager: BlockManager = SparkEnv.get.blockManager,
     mapOutputTracker: MapOutputTracker = SparkEnv.get.mapOutputTracker,
-    mapId: Option[Int] = None)
+    startMapId: Option[Int] = None,
+    endMapId: Option[Int] = None)
   extends ShuffleReader[K, C] with Logging {
 
   private val dep = handle.dependency
 
   /** Read the combined key-values for this reduce task */
   override def read(): Iterator[Product2[K, C]] = {
-    val blocksByAddress = mapId match {
-      case Some(id) => mapOutputTracker.getMapSizesByExecutorId(
+    val blocksByAddress = (startMapId, endMapId) match {
+      case (Some(startId), Some(endId)) => mapOutputTracker.getMapSizesByExecutorId(
         handle.shuffleId,
         startPartition,
         endPartition,
-        id)
-      case None => mapOutputTracker.getMapSizesByExecutorId(
+        startId,
+        endId)
+      case (None, None) => mapOutputTracker.getMapSizesByExecutorId(
         handle.shuffleId,
         startPartition,
         endPartition)

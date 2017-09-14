@@ -56,7 +56,7 @@ class LocalShuffledRowRDD(
   override def getPreferredLocations(partition: Partition): Seq[String] = {
     val tracker = SparkEnv.get.mapOutputTracker.asInstanceOf[MapOutputTrackerMaster]
     val dep = dependencies.head.asInstanceOf[ShuffleDependency[_, _, _]]
-    tracker.getMapLocation(dep, partition.index)
+    tracker.getMapLocation(dep, partition.index, partition.index + 1)
   }
 
   override def compute(split: Partition, context: TaskContext): Iterator[InternalRow] = {
@@ -69,7 +69,8 @@ class LocalShuffledRowRDD(
         0,
         numPreShufflePartitions,
         context,
-        mapId)
+        mapId,
+        mapId + 1)
     reader.read().asInstanceOf[Iterator[Product2[Int, InternalRow]]].map(_._2)
   }
 
