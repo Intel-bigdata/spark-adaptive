@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
 import org.apache.spark.sql.execution.exchange._
 import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, BuildLeft, BuildRight, SortMergeJoinExec}
-import org.apache.spark.sql.execution.statsEstimation.Statistics
+import org.apache.spark.sql.execution.statsEstimation.{SizeInBytesOnlyStatsPlanVisitor, Statistics}
 import org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
@@ -100,7 +100,7 @@ case class ShuffleQueryStageInput(
   override def doExecute(): RDD[InternalRow] = {
     val childRDD = childStage.execute().asInstanceOf[ShuffledRowRDD]
     if (isLocalShuffle) {
-      new LocalShuffledRowRDD(childRDD.dependency)
+      new LocalShuffledRowRDD(childRDD.dependency, partitionStartIndices, partitionEndIndices)
     } else if (isAdaptiveShuffle) {
       assert(partitionStartIndices.isDefined && partitionEndIndices.isDefined &&
         partitionEndIndices.get(0) == partitionStartIndices.get(0) + 1)
@@ -324,6 +324,35 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
     }
   }
 
+  // Change to functional way?
+  private def calculatePartitionStartEndIndices(plan: QueryStage): (Array[Int], Array[Int]) = {
+    val rowStatisticsByPartitionId = SizeInBytesOnlyStatsPlanVisitor.visitQueryStage(
+      plan).partStatistics.get.rowsByPartitionId
+    val partitionStartIndicies = ArrayBuffer[Int]()
+    val partitionEndIndicies = ArrayBuffer[Int]()
+    var continuousZeroFlag = false
+    var end = 0
+    var i = 0
+    for (rows <- rowStatisticsByPartitionId) {
+      if (rows != 0) {
+        if (!continuousZeroFlag) {
+          partitionStartIndicies += i
+          continuousZeroFlag = true
+        }
+      } else {
+        if (continuousZeroFlag) {
+          partitionEndIndicies += i
+          continuousZeroFlag = false
+        }
+      }
+      i += 1
+    }
+    if (continuousZeroFlag) {
+      partitionEndIndicies += i
+    }
+    (partitionStartIndicies.toArray, partitionEndIndicies.toArray)
+  }
+
   private def optimizeSortMergeJoin(
       smj: SortMergeJoinExec,
       queryStage: QueryStage): SparkPlan = {
@@ -353,9 +382,22 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
 
         if ((numExchanges == 0) ||
           (queryStage.isInstanceOf[ShuffleQueryStage] && numExchanges <= 1)) {
+          val broadcastSidePlan = if (broadcastSide.get.equals(BuildLeft)) {
+            // TODO RemoveSort(left) may not return a QueryStageInput?
+            removeSort(left).asInstanceOf[QueryStageInput].childStage
+          } else {
+            removeSort(right).asInstanceOf[QueryStageInput].childStage
+          }
+          // Not read the partitions which has 0 rows on build side
+          val startAndEndIndices = calculatePartitionStartEndIndices(
+            broadcastSidePlan.asInstanceOf[QueryStage])
+
           // Set QueryStageInput to return local shuffled RDD
           broadcastJoin.children.foreach {
-            case input: ShuffleQueryStageInput => input.isLocalShuffle = true
+            case input: ShuffleQueryStageInput =>
+              input.isLocalShuffle = true
+              input.partitionStartIndices = Some(startAndEndIndices._1)
+              input.partitionEndIndices = Some(startAndEndIndices._2)
             case _ =>
           }
           // Update the plan in queryStage
