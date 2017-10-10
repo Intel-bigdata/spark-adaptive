@@ -15,17 +15,14 @@
  * limitations under the License.
  */
 
-package org.apache.spark
+package org.apache.spark.shuffle.sort;
 
-/**
- * Holds statistics about the output sizes in a map stage. May become a DeveloperApi in the future.
- *
- * @param shuffleId ID of the shuffle
- * @param bytesByPartitionId approximate number of output bytes for each map output partition
- *   (may be inexact due to use of compressed map statuses)
- */
-private[spark] class MapOutputStatistics(
-    val shuffleId: Int,
-    val bytesByPartitionId: Array[Long],
-    val rowsByPartitionId: Array[Long] = null)
-  extends Serializable
+public class MapInfo {
+    public long[] lengths;
+    public long[] rows;
+
+    public MapInfo(long[] lengths, long[] rows) {
+        this.lengths = lengths;
+        this.rows = rows;
+    }
+}

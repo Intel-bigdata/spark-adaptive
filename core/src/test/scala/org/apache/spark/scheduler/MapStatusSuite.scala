@@ -60,13 +60,15 @@ class MapStatusSuite extends SparkFunSuite {
       stddev <- Seq(0.0, 0.01, 0.5, 1.0)
     ) {
       val sizes = Array.fill[Long](numSizes)(abs(round(Random.nextGaussian() * stddev)) + mean)
-      val status = MapStatus(BlockManagerId("a", "b", 10), sizes)
+      val rows = sizes
+      val status = MapStatus(BlockManagerId("a", "b", 10), sizes, rows)
       val status1 = compressAndDecompressMapStatus(status)
       for (i <- 0 until numSizes) {
         if (sizes(i) != 0) {
           val failureMessage = s"Failed with $numSizes sizes with mean=$mean, stddev=$stddev"
           assert(status.getSizeForBlock(i) !== 0, failureMessage)
           assert(status1.getSizeForBlock(i) !== 0, failureMessage)
+          assert(status1.getRowForBlock(i) !== 0, failureMessage)
         }
       }
     }
@@ -74,26 +76,33 @@ class MapStatusSuite extends SparkFunSuite {
 
   test("large tasks should use " + classOf[HighlyCompressedMapStatus].getName) {
     val sizes = Array.fill[Long](2001)(150L)
-    val status = MapStatus(null, sizes)
+    val rows = Array.fill[Long](2001)(300L)
+    val status = MapStatus(null, sizes, rows)
     assert(status.isInstanceOf[HighlyCompressedMapStatus])
-    assert(status.getSizeForBlock(10) === 150L)
-    assert(status.getSizeForBlock(50) === 150L)
-    assert(status.getSizeForBlock(99) === 150L)
-    assert(status.getSizeForBlock(2000) === 150L)
+    Seq(10, 50, 99, 200).foreach{ n =>
+      assert(status.getSizeForBlock(n) === 150L)
+      assert(status.getRowForBlock(n) === 300L)
+    }
   }
 
   test("HighlyCompressedMapStatus: estimated size should be the average non-empty block size") {
     val sizes = Array.tabulate[Long](3000) { i => i.toLong }
-    val avg = sizes.sum / sizes.count(_ != 0)
+    val rows = Array.tabulate[Long](3000) { i => (i * 2).toLong }
+    val avgSize = sizes.sum / sizes.count(_ != 0)
+    val avgRow = rows.sum / rows.count(_ != 0)
     val loc = BlockManagerId("a", "b", 10)
-    val status = MapStatus(loc, sizes)
+    val status = MapStatus(loc, sizes, rows)
     val status1 = compressAndDecompressMapStatus(status)
     assert(status1.isInstanceOf[HighlyCompressedMapStatus])
     assert(status1.location == loc)
     for (i <- 0 until 3000) {
-      val estimate = status1.getSizeForBlock(i)
+      val estimateSize = status1.getSizeForBlock(i)
       if (sizes(i) > 0) {
-        assert(estimate === avg)
+        assert(estimateSize === avgSize)
+      }
+      val estimateRow = status1.getRowForBlock(i)
+      if (rows(i) > 0) {
+        assert(estimateRow === avgRow)
       }
     }
   }
@@ -142,7 +151,8 @@ class MapStatusSuite extends SparkFunSuite {
     SparkEnv.set(env)
     // Value of element in sizes is equal to the corresponding index.
     val sizes = (0L to 2000L).toArray
-    val status1 = MapStatus(BlockManagerId("exec-0", "host-0", 100), sizes)
+    val rows = (0L to 2000L).toArray
+    val status1 = MapStatus(BlockManagerId("exec-0", "host-0", 100), sizes, rows)
     val arrayStream = new ByteArrayOutputStream(102400)
     val objectOutputStream = new ObjectOutputStream(arrayStream)
     assert(status1.isInstanceOf[HighlyCompressedMapStatus])

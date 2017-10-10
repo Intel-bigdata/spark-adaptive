@@ -38,9 +38,14 @@ import org.apache.spark.util.Utils
  *                    defaults to the product of children's `sizeInBytes`.
  * @param rowCount Estimated number of rows.
  */
+case class PartitionStatistics(
+    bytesByPartitionId: Array[Long],
+    rowsByPartitionId: Array[Long])
+
 case class Statistics(
     sizeInBytes: BigInt,
-    rowCount: Option[BigInt] = None) {
+    rowCount: Option[BigInt] = None,
+    partStatistics: Option[PartitionStatistics] = None) {
 
   override def toString: String = "Statistics(" + simpleString + ")"
 

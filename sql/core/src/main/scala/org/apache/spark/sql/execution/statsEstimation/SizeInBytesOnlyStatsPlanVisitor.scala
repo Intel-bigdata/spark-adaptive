@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution.statsEstimation
 
 import org.apache.spark.sql.catalyst.plans.{LeftAnti, LeftSemi}
 import org.apache.spark.sql.execution._
+import org.apache.spark.sql.execution.adaptive.QueryStage
 import org.apache.spark.sql.execution.aggregate._
 import org.apache.spark.sql.execution.exchange.ShuffleExchange
 import org.apache.spark.sql.execution.joins.{HashJoin, SortMergeJoinExec}
@@ -73,7 +74,12 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
   override def visitShuffleExchange(p: ShuffleExchange): Statistics = {
     if (p.mapOutputStatistics != null) {
       val sizeInBytes = p.mapOutputStatistics.bytesByPartitionId.sum
-      Statistics(sizeInBytes = sizeInBytes)
+      val bytesByPartitionId = p.mapOutputStatistics.bytesByPartitionId
+      val rowCount = p.mapOutputStatistics.rowsByPartitionId.sum
+      val rowsByPartitionId = p.mapOutputStatistics.rowsByPartitionId
+      Statistics(sizeInBytes = sizeInBytes,
+        rowCount = Some(rowCount),
+        partStatistics = Some(PartitionStatistics(bytesByPartitionId, rowsByPartitionId)))
     } else {
       visitUnaryExecNode(p)
     }
@@ -101,7 +107,12 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
   override def visitQueryStage(p: QueryStage): Statistics = {
     if (p.mapOutputStatistics != null) {
       val sizeInBytes = p.mapOutputStatistics.bytesByPartitionId.sum
-      Statistics(sizeInBytes = sizeInBytes)
+      val bytesByPartitionId = p.mapOutputStatistics.bytesByPartitionId
+      val rowCount = p.mapOutputStatistics.rowsByPartitionId.sum
+      val rowsByPartitionId = p.mapOutputStatistics.rowsByPartitionId
+      Statistics(sizeInBytes = sizeInBytes,
+        rowCount = Some(rowCount),
+        partStatistics = Some(PartitionStatistics(bytesByPartitionId, rowsByPartitionId)))
     } else {
       p.child.stats
     }

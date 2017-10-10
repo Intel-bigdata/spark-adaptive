@@ -44,16 +44,19 @@ private[spark] sealed trait MapStatus {
    * necessary for correctness, since block fetchers are allowed to skip zero-size blocks.
    */
   def getSizeForBlock(reduceId: Int): Long
+
+  def getRowForBlock(reduceId: Int): Long
 }
 
 
 private[spark] object MapStatus {
 
-  def apply(loc: BlockManagerId, uncompressedSizes: Array[Long]): MapStatus = {
+  def apply(loc: BlockManagerId,
+    uncompressedSizes: Array[Long], uncompressedRows: Array[Long]): MapStatus = {
     if (uncompressedSizes.length > 2000) {
-      HighlyCompressedMapStatus(loc, uncompressedSizes)
+      HighlyCompressedMapStatus(loc, uncompressedSizes, uncompressedRows)
     } else {
-      new CompressedMapStatus(loc, uncompressedSizes)
+      new CompressedMapStatus(loc, uncompressedSizes, uncompressedRows)
     }
   }
 
@@ -96,13 +99,16 @@ private[spark] object MapStatus {
  */
 private[spark] class CompressedMapStatus(
     private[this] var loc: BlockManagerId,
-    private[this] var compressedSizes: Array[Byte])
+    private[this] var compressedSizes: Array[Byte],
+    private[this] var compressedRows: Array[Byte])
   extends MapStatus with Externalizable {
 
-  protected def this() = this(null, null.asInstanceOf[Array[Byte]])  // For deserialization only
+  protected def this() = this(null,
+    null.asInstanceOf[Array[Byte]], null.asInstanceOf[Array[Byte]])  // For deserialization only
 
-  def this(loc: BlockManagerId, uncompressedSizes: Array[Long]) {
-    this(loc, uncompressedSizes.map(MapStatus.compressSize))
+  def this(loc: BlockManagerId, uncompressedSizes: Array[Long], uncompressedRows: Array[Long]) {
+    this(loc,
+      uncompressedSizes.map(MapStatus.compressSize), uncompressedRows.map(MapStatus.compressSize))
   }
 
   override def location: BlockManagerId = loc
@@ -111,17 +117,26 @@ private[spark] class CompressedMapStatus(
     MapStatus.decompressSize(compressedSizes(reduceId))
   }
 
+  override def getRowForBlock(reduceId: Int): Long = {
+    MapStatus.decompressSize(compressedRows(reduceId))
+  }
+
   override def writeExternal(out: ObjectOutput): Unit = Utils.tryOrIOException {
     loc.writeExternal(out)
     out.writeInt(compressedSizes.length)
     out.write(compressedSizes)
+    out.writeInt(compressedRows.length)
+    out.write(compressedRows)
   }
 
   override def readExternal(in: ObjectInput): Unit = Utils.tryOrIOException {
     loc = BlockManagerId(in)
-    val len = in.readInt()
-    compressedSizes = new Array[Byte](len)
+    val sizesLen = in.readInt()
+    compressedSizes = new Array[Byte](sizesLen)
     in.readFully(compressedSizes)
+    val rowsLen = in.readInt()
+    compressedRows = new Array[Byte](rowsLen)
+    in.readFully(compressedRows)
   }
 }
 
@@ -141,14 +156,16 @@ private[spark] class HighlyCompressedMapStatus private (
     private[this] var numNonEmptyBlocks: Int,
     private[this] var emptyBlocks: RoaringBitmap,
     private[this] var avgSize: Long,
-    private var hugeBlockSizes: Map[Int, Byte])
+    private var hugeBlockSizes: Map[Int, Byte],
+    private[this] var avgRow: Long,
+    private var hugeBlockRows: Map[Int, Byte])
   extends MapStatus with Externalizable {
 
   // loc could be null when the default constructor is called during deserialization
   require(loc == null || avgSize > 0 || hugeBlockSizes.size > 0 || numNonEmptyBlocks == 0,
     "Average size can only be zero for map stages that produced no output")
 
-  protected def this() = this(null, -1, null, -1, null)  // For deserialization only
+  protected def this() = this(null, -1, null, -1, null, -1, null)  // For deserialization only
 
   override def location: BlockManagerId = loc
 
@@ -164,12 +181,30 @@ private[spark] class HighlyCompressedMapStatus private (
     }
   }
 
+  override def getRowForBlock(reduceId: Int): Long = {
+    assert(hugeBlockSizes != null)
+    if (emptyBlocks.contains(reduceId)) {
+      0
+    } else {
+      hugeBlockRows.get(reduceId) match {
+        case Some(row) => MapStatus.decompressSize(row)
+        case None => avgRow
+      }
+    }
+  }
+
   override def writeExternal(out: ObjectOutput): Unit = Utils.tryOrIOException {
     loc.writeExternal(out)
     emptyBlocks.writeExternal(out)
     out.writeLong(avgSize)
     out.writeInt(hugeBlockSizes.size)
     hugeBlockSizes.foreach { kv =>
+      out.writeInt(kv._1)
+      out.writeByte(kv._2)
+    }
+    out.writeLong(avgRow)
+    out.writeInt(hugeBlockRows.size)
+    hugeBlockRows.foreach { kv =>
       out.writeInt(kv._1)
       out.writeByte(kv._2)
     }
@@ -180,19 +215,29 @@ private[spark] class HighlyCompressedMapStatus private (
     emptyBlocks = new RoaringBitmap()
     emptyBlocks.readExternal(in)
     avgSize = in.readLong()
-    val count = in.readInt()
+    val sizeCount = in.readInt()
     val hugeBlockSizesArray = mutable.ArrayBuffer[Tuple2[Int, Byte]]()
-    (0 until count).foreach { _ =>
+    (0 until sizeCount).foreach { _ =>
       val block = in.readInt()
       val size = in.readByte()
       hugeBlockSizesArray += Tuple2(block, size)
     }
     hugeBlockSizes = hugeBlockSizesArray.toMap
+    avgRow = in.readLong()
+    val rowCount = in.readInt()
+    val hugeBlockRowsArray = mutable.ArrayBuffer[Tuple2[Int, Byte]]()
+    (0 until rowCount).foreach { _ =>
+      val block = in.readInt()
+      val row = in.readByte()
+      hugeBlockRowsArray += Tuple2(block, row)
+    }
+    hugeBlockRows = hugeBlockRowsArray.toMap
   }
 }
 
 private[spark] object HighlyCompressedMapStatus {
-  def apply(loc: BlockManagerId, uncompressedSizes: Array[Long]): HighlyCompressedMapStatus = {
+  def apply(loc: BlockManagerId,
+    uncompressedSizes: Array[Long], uncompressedRows: Array[Long]): HighlyCompressedMapStatus = {
     // We must keep track of which blocks are empty so that we don't report a zero-sized
     // block as being non-empty (or vice-versa) when using the average block size.
     var i = 0
@@ -203,20 +248,31 @@ private[spark] object HighlyCompressedMapStatus {
     // we expect that there will be far fewer of them, so we will perform fewer bitmap insertions.
     val emptyBlocks = new RoaringBitmap()
     val totalNumBlocks = uncompressedSizes.length
-    val threshold = Option(SparkEnv.get)
+    val sizeThreshold = Option(SparkEnv.get)
       .map(_.conf.get(config.SHUFFLE_ACCURATE_BLOCK_THRESHOLD))
       .getOrElse(config.SHUFFLE_ACCURATE_BLOCK_THRESHOLD.defaultValue.get)
     val hugeBlockSizesArray = ArrayBuffer[Tuple2[Int, Byte]]()
+    var totalRow: Long = 0
+    val rowThreshold = Option(SparkEnv.get)
+      .map(_.conf.get(config.SHUFFLE_ACCURATE_BLOCK_THRESHOLD_ROW))
+      .getOrElse(config.SHUFFLE_ACCURATE_BLOCK_THRESHOLD_ROW.defaultValue.get)
+    val hugeBlockRowsArray = ArrayBuffer[Tuple2[Int, Byte]]()
     while (i < totalNumBlocks) {
       val size = uncompressedSizes(i)
+      val row = uncompressedRows(i)
       if (size > 0) {
         numNonEmptyBlocks += 1
         // Huge blocks are not included in the calculation for average size, thus size for smaller
         // blocks is more accurate.
-        if (size < threshold) {
+        if (size < sizeThreshold) {
           totalSize += size
         } else {
           hugeBlockSizesArray += Tuple2(i, MapStatus.compressSize(uncompressedSizes(i)))
+        }
+        if (row < rowThreshold) {
+          totalRow += row
+        } else {
+          hugeBlockRowsArray += Tuple2(i, MapStatus.compressSize(uncompressedRows(i)))
         }
       } else {
         emptyBlocks.add(i)
@@ -228,9 +284,14 @@ private[spark] object HighlyCompressedMapStatus {
     } else {
       0
     }
+    val avgRow = if (numNonEmptyBlocks > 0) {
+      totalRow / numNonEmptyBlocks
+    } else {
+      0
+    }
     emptyBlocks.trim()
     emptyBlocks.runOptimize()
     new HighlyCompressedMapStatus(loc, numNonEmptyBlocks, emptyBlocks, avgSize,
-      hugeBlockSizesArray.toMap)
+      hugeBlockSizesArray.toMap, avgRow, hugeBlockRowsArray.toMap)
   }
 }

@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution.exchange
 import java.util.{HashMap => JHashMap, Map => JMap}
 import javax.annotation.concurrent.GuardedBy
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 import org.apache.spark.{MapOutputStatistics, ShuffleDependency, SimpleFutureAction}
@@ -42,6 +43,9 @@ import org.apache.spark.sql.execution.{ShuffledRowRDD, SparkPlan}
  *    input data size. With this parameter, we can estimate the number of post-shuffle partitions.
  *    This parameter is configured through
  *    `spark.sql.adaptive.shuffle.targetPostShuffleInputSize`.
+ *  - `targetPostShuffleRowCount` is the targeted row count of a post-shuffle partition's
+ *    input row count. This is set through
+ *    `spark.sql.adaptive.shuffle.adaptiveTargetPostShuffleRowCount`.
  *  - `minNumPostShufflePartitions` is an optional parameter. If it is defined, this coordinator
  *    will try to make sure that there are at least `minNumPostShufflePartitions` post-shuffle
  *    partitions.
@@ -84,6 +88,7 @@ import org.apache.spark.sql.execution.{ShuffledRowRDD, SparkPlan}
  */
 class ExchangeCoordinator(
     advisoryTargetPostShuffleInputSize: Long,
+    targetPostShuffleRowCount: Long,
     minNumPostShufflePartitions: Option[Int] = None)
   extends Logging {
 
@@ -93,6 +98,20 @@ class ExchangeCoordinator(
    */
   def estimatePartitionStartIndices(
       mapOutputStatistics: Array[MapOutputStatistics]): Array[Int] = {
+    estimatePartitionStartEndIndices(mapOutputStatistics, mutable.HashSet.empty)._1
+  }
+
+  /**
+   * Estimates partition start indices for post-shuffle partitions based on
+   * mapOutputStatistics provided by all pre-shuffle stages and omitted skewed partitions which have
+   * been taken care of in HandleSkewedJoin.
+   */
+  def estimatePartitionStartEndIndices(
+      mapOutputStatistics: Array[MapOutputStatistics],
+      omittedPartitions: mutable.HashSet[Int]): (Array[Int], Array[Int]) = {
+
+    assert(omittedPartitions.size < mapOutputStatistics(0).bytesByPartitionId.length,
+      "All partitions are skewed.")
 
     // If minNumPostShufflePartitions is defined, it is possible that we need to use a
     // value less than advisoryTargetPostShuffleInputSize as the target input size of
@@ -113,7 +132,7 @@ class ExchangeCoordinator(
 
     logInfo(
       s"advisoryTargetPostShuffleInputSize: $advisoryTargetPostShuffleInputSize, " +
-      s"targetPostShuffleInputSize $targetPostShuffleInputSize.")
+      s"targetPostShuffleInputSize $targetPostShuffleInputSize. ")
 
     // Make sure we do get the same number of pre-shuffle partitions for those stages.
     val distinctNumPreShufflePartitions =
@@ -131,37 +150,60 @@ class ExchangeCoordinator(
     val numPreShufflePartitions = distinctNumPreShufflePartitions.head
 
     val partitionStartIndices = ArrayBuffer[Int]()
-    // The first element of partitionStartIndices is always 0.
-    partitionStartIndices += 0
+    val partitionEndIndices = ArrayBuffer[Int]()
 
-    var postShuffleInputSize = 0L
-
-    var i = 0
-    while (i < numPreShufflePartitions) {
-      // We calculate the total size of ith pre-shuffle partitions from all pre-shuffle stages.
-      // Then, we add the total size to postShuffleInputSize.
-      var nextShuffleInputSize = 0L
-      var j = 0
-      while (j < mapOutputStatistics.length) {
-        nextShuffleInputSize += mapOutputStatistics(j).bytesByPartitionId(i)
-        j += 1
+    def nextStartIndex(i: Int): Int = {
+      var index = i
+      while (index < numPreShufflePartitions && omittedPartitions.contains(index)) {
+        index = index + 1
       }
-
-      // If including the nextShuffleInputSize would exceed the target partition size, then start a
-      // new partition.
-      if (i > 0 && postShuffleInputSize + nextShuffleInputSize > targetPostShuffleInputSize) {
-        partitionStartIndices += i
-        // reset postShuffleInputSize.
-        postShuffleInputSize = nextShuffleInputSize
-      } else postShuffleInputSize += nextShuffleInputSize
-
-      i += 1
+      index
     }
 
-    partitionStartIndices.toArray
+    def partitionSizeAndRowCount(partitionId: Int): (Long, Long) = {
+      var size = 0L
+      var rowCount = 0L
+      var j = 0
+      while (j < mapOutputStatistics.length) {
+        size += mapOutputStatistics(j).bytesByPartitionId(partitionId)
+        rowCount += mapOutputStatistics(j).rowsByPartitionId(partitionId)
+        j += 1
+      }
+      (size, rowCount)
+    }
+
+    val firstStartIndex = nextStartIndex(0)
+    partitionStartIndices += firstStartIndex
+    var (postShuffleInputSize, postShuffleInputRowCount) = partitionSizeAndRowCount(firstStartIndex)
+
+    var i = firstStartIndex
+    var nextIndex = nextStartIndex(i + 1)
+    while (nextIndex < numPreShufflePartitions) {
+      val (nextShuffleInputSize, nextShuffleInputRowCount) = partitionSizeAndRowCount(nextIndex)
+      // If the next partition is omitted, or including the nextShuffleInputSize would exceed the
+      // target partition size, then start a new partition.
+      if (nextIndex != i + 1
+        || postShuffleInputSize + nextShuffleInputSize > targetPostShuffleInputSize
+        || postShuffleInputRowCount + nextShuffleInputRowCount > targetPostShuffleRowCount) {
+        partitionEndIndices += i + 1
+        partitionStartIndices += nextIndex
+        postShuffleInputSize = nextShuffleInputSize
+        postShuffleInputRowCount = nextShuffleInputRowCount
+        i = nextIndex
+      } else {
+        postShuffleInputSize += nextShuffleInputSize
+        postShuffleInputRowCount += nextShuffleInputRowCount
+        i += 1
+      }
+      nextIndex = nextStartIndex(nextIndex + 1)
+    }
+    partitionEndIndices += i + 1
+
+    (partitionStartIndices.toArray, partitionEndIndices.toArray)
   }
 
   override def toString: String = {
-    s"coordinator[target post-shuffle partition size: $advisoryTargetPostShuffleInputSize]"
+    s"coordinator[target post-shuffle partition size: $advisoryTargetPostShuffleInputSize]" +
+      s"coordinator[target post-shuffle row count: $targetPostShuffleRowCount]"
   }
 }

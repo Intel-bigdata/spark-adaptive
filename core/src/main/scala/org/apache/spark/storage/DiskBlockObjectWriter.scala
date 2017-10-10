@@ -97,6 +97,7 @@ private[spark] class DiskBlockObjectWriter(
    * output bytes written since the latter is expensive to do for each record.
    */
   private var numRecordsWritten = 0
+  def getNumRecordsWritten: Int = numRecordsWritten
 
   private def initialize(): Unit = {
     fos = new FileOutputStream(file, true)
