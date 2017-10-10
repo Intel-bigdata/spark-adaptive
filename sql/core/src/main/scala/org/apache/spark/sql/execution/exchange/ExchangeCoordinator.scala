@@ -152,12 +152,14 @@ class ExchangeCoordinator(
     val partitionStartIndices = ArrayBuffer[Int]()
     val partitionEndIndices = ArrayBuffer[Int]()
 
-    def nextStartIndex(i: Int): Int = {
-      var index = i
-      while (index < numPreShufflePartitions && omittedPartitions.contains(index)) {
-        index = index + 1
+    var currentIndex = -1
+
+    def hasNext = {
+      currentIndex += 1
+      while (omittedPartitions.contains(currentIndex)) {
+        currentIndex += 1
       }
-      index
+      currentIndex < numPreShufflePartitions
     }
 
     def partitionSizeAndRowCount(partitionId: Int): (Long, Long) = {
@@ -172,32 +174,34 @@ class ExchangeCoordinator(
       (size, rowCount)
     }
 
-    val firstStartIndex = nextStartIndex(0)
-    partitionStartIndices += firstStartIndex
-    var (postShuffleInputSize, postShuffleInputRowCount) = partitionSizeAndRowCount(firstStartIndex)
 
-    var i = firstStartIndex
-    var nextIndex = nextStartIndex(i + 1)
-    while (nextIndex < numPreShufflePartitions) {
-      val (nextShuffleInputSize, nextShuffleInputRowCount) = partitionSizeAndRowCount(nextIndex)
-      // If the next partition is omitted, or including the nextShuffleInputSize would exceed the
-      // target partition size, then start a new partition.
-      if (nextIndex != i + 1
-        || postShuffleInputSize + nextShuffleInputSize > targetPostShuffleInputSize
-        || postShuffleInputRowCount + nextShuffleInputRowCount > targetPostShuffleRowCount) {
-        partitionEndIndices += i + 1
-        partitionStartIndices += nextIndex
-        postShuffleInputSize = nextShuffleInputSize
-        postShuffleInputRowCount = nextShuffleInputRowCount
-        i = nextIndex
-      } else {
-        postShuffleInputSize += nextShuffleInputSize
-        postShuffleInputRowCount += nextShuffleInputRowCount
-        i += 1
+    if (hasNext) {
+      var lastActiveIndex = currentIndex
+      var (postShuffleInputSize, postShuffleInputRowCount) = partitionSizeAndRowCount(currentIndex)
+
+      partitionStartIndices += currentIndex
+      while (hasNext) {
+        val (currentShuffleInputSize, currentShuffleInputRowCount) = partitionSizeAndRowCount(
+          currentIndex)
+        // If the next partition is omitted, or including the nextShuffleInputSize would exceed the
+        // target partition size, then start a new partition.
+        if (currentIndex != lastActiveIndex + 1
+          || postShuffleInputSize + currentShuffleInputSize > targetPostShuffleInputSize
+          || postShuffleInputRowCount + currentShuffleInputRowCount > targetPostShuffleRowCount) {
+          partitionEndIndices += lastActiveIndex + 1
+          partitionStartIndices += currentIndex
+          postShuffleInputSize = currentShuffleInputSize
+          postShuffleInputRowCount = currentShuffleInputRowCount
+          lastActiveIndex = currentIndex
+        } else {
+          postShuffleInputSize += currentShuffleInputSize
+          postShuffleInputRowCount += currentShuffleInputRowCount
+          lastActiveIndex = currentIndex
+        }
       }
-      nextIndex = nextStartIndex(nextIndex + 1)
+      partitionEndIndices += lastActiveIndex + 1
     }
-    partitionEndIndices += i + 1
+
 
     (partitionStartIndices.toArray, partitionEndIndices.toArray)
   }
