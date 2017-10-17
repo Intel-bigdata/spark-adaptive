@@ -401,9 +401,7 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
         case si: ShuffleQueryStageInput => si
       }
       assert(siAfterExecution.length === 1)
-
-      // MapStatus uses log base 1.1 on records to compress,
-      // after decompressing, it becomes to 106
+      
       val stats = siAfterExecution.head.childStage.mapOutputStatistics
       assert(stats.recordsByPartitionId.isEmpty)
     }
