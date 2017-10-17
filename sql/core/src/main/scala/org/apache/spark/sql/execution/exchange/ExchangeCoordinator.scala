@@ -165,8 +165,10 @@ class ExchangeCoordinator(
       var rowCount = 0L
       var j = 0
       while (j < mapOutputStatistics.length) {
-        size += mapOutputStatistics(j).bytesByPartitionId(partitionId)
-        rowCount += mapOutputStatistics(j).recordsByPartitionId(partitionId)
+        val statistics = mapOutputStatistics(j)
+        size += statistics.bytesByPartitionId(partitionId)
+        if (statistics.recordsByPartitionId.length != 0)
+          rowCount += statistics.recordsByPartitionId(partitionId)
         j += 1
       }
       (size, rowCount)
