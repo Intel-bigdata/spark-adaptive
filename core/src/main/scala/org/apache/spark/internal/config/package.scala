@@ -308,6 +308,14 @@ package object config {
       .bytesConf(ByteUnit.BYTE)
       .createWithDefault(100 * 1024 * 1024)
 
+  private[spark] val SHUFFLE_ACCURATE_BLOCK_SMALL_TINY_RATIO =
+    ConfigBuilder("spark.shuffle.accurateBlockSmallTinyRatio")
+      .doc("When we compress the size of shuffle blocks in HighlyCompressedMapStatus, we will " +
+        "record the average tiny or small size depending on threshold calculated using this " +
+        "ratio. This also helps to prevent OOM")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefault(10)
+
   private[spark] val SHUFFLE_STATISTICS_VERBOSE =
     ConfigBuilder("spark.shuffle.statistics.verbose")
       .doc("Collect shuffle statistics in verbose mode, including row counts etc.")
