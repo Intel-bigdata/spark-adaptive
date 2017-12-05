@@ -38,16 +38,27 @@ private[spark] class FetchFailedException(
     mapId: Int,
     reduceId: Int,
     message: String,
-    cause: Throwable = null)
+    cause: Throwable = null,
+    length: Int = 1)
   extends Exception(message, cause) {
 
   def this(
-      bmAddress: BlockManagerId,
-      shuffleId: Int,
-      mapId: Int,
-      reduceId: Int,
-      cause: Throwable) {
+    bmAddress: BlockManagerId,
+    shuffleId: Int,
+    mapId: Int,
+    reduceId: Int,
+    cause: Throwable) {
     this(bmAddress, shuffleId, mapId, reduceId, cause.getMessage, cause)
+  }
+
+  def this(
+    bmAddress: BlockManagerId,
+    shuffleId: Int,
+    mapId: Int,
+    reduceId: Int,
+    cause: Throwable,
+    length: Int) {
+    this(bmAddress, shuffleId, mapId, reduceId, cause.getMessage, cause, length)
   }
 
   // SPARK-19276. We set the fetch failure in the task context, so that even if there is user-code
@@ -56,8 +67,8 @@ private[spark] class FetchFailedException(
   // because the TaskContext is not defined in some test cases.
   Option(TaskContext.get()).map(_.setFetchFailed(this))
 
-  def toTaskFailedReason: TaskFailedReason = FetchFailed(bmAddress, shuffleId, mapId, reduceId,
-    Utils.exceptionString(this))
+  def toTaskFailedReason: TaskFailedReason =
+    FetchFailed(bmAddress, shuffleId, mapId, reduceId, Utils.exceptionString(this), length)
 }
 
 /**
