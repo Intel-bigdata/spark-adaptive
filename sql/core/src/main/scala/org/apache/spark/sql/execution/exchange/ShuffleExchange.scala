@@ -118,8 +118,8 @@ case class ShuffleExchange(
         // So, we will not submit this dependency.
         val submittedStageFuture = sqlContext.sparkContext.submitMapStage(shuffleDependency)
         _mapOutputStatistics = submittedStageFuture.get()
-        cachedShuffleRDD = preparePostShuffleRDD(shuffleDependency)
       }
+      cachedShuffleRDD = preparePostShuffleRDD(shuffleDependency)
     }
     cachedShuffleRDD
   }
