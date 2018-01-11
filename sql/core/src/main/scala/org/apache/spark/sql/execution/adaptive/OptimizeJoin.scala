@@ -129,13 +129,18 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
           val newChild = queryStage.child.transformDown {
             case s: SortMergeJoinExec if (s.fastEquals(smj)) => broadcastJoin
           }
-          // Apply EnsureRequirement rule to check if any new Exchange will be added. If no
-          // Exchange is added, we convert the sortMergeJoin to BroadcastHashJoin. Otherwise
-          // we don't convert it because it causes additional Shuffle.
-          val afterEnsureRequirements = EnsureRequirements(conf).apply(newChild)
-          val numExchanges = afterEnsureRequirements.collect {
+          // Apply EnsureRequirement rule to check if any new Exchange will be added. If the added
+          // Exchange number less than 1(maybe will give a parameter), we convert the
+          // sortMergeJoin to BroadcastHashJoin. Otherwise we don't convert it because it causes
+          // additional Shuffle.
+          val exchangesBefore = newChild.collect {
             case e: ShuffleExchange => e
-          }.length
+          }
+          val afterEnsureRequirements = EnsureRequirements(conf).apply(newChild)
+          val exchangesAfter = afterEnsureRequirements.collect {
+            case e: ShuffleExchange => e
+          }
+          val numExchanges = exchangesAfter.length - exchangesBefore.length
 
           if ((numExchanges == 0) ||
             (queryStage.isInstanceOf[ShuffleQueryStage] && numExchanges <= 1)) {
@@ -151,6 +156,9 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
             queryStage.child = newChild
             broadcastJoin
           } else {
+            logWarning("Join optimization revert, this is because the added exchange larger" +
+              s"than 1. Before optimizing, shuffle exchanges are:\n${exchangesBefore.toString}\n" +
+              s"After optimizing, shuffle exchanges are:\n${exchangesAfter.toString}")
             smj
           }
         }.getOrElse(smj)
