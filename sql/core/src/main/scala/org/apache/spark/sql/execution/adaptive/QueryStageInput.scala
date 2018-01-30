@@ -75,7 +75,7 @@ abstract class QueryStageInput extends LeafExecNode {
 case class ShuffleQueryStageInput(
     childStage: ShuffleQueryStage,
     override val output: Seq[Attribute],
-    var partitionStartIndices: Option[Array[Int]] = None)
+    partitionStartIndices: Option[Array[Int]] = None)
   extends QueryStageInput {
 
   override def outputPartitioning: Partitioning = partitionStartIndices.map {
