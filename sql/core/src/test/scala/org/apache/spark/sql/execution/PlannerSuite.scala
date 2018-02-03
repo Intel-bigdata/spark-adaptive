@@ -395,8 +395,7 @@ class PlannerSuite extends SharedSQLContext {
       DummySparkPlan(
         children = DummySparkPlan(outputPartitioning = childPartitioning) :: Nil,
         requiredChildDistribution = Seq(distribution),
-        requiredChildOrdering = Seq(Seq.empty)),
-      None)
+        requiredChildOrdering = Seq(Seq.empty)))
 
     val outputPlan = EnsureRequirements(spark.sessionState.conf).apply(inputPlan)
     assertDistributionRequirementsAreSatisfied(outputPlan)
@@ -415,8 +414,7 @@ class PlannerSuite extends SharedSQLContext {
       DummySparkPlan(
         children = DummySparkPlan(outputPartitioning = childPartitioning) :: Nil,
         requiredChildDistribution = Seq(distribution),
-        requiredChildOrdering = Seq(Seq.empty)),
-      None)
+        requiredChildOrdering = Seq(Seq.empty)))
 
     val outputPlan = EnsureRequirements(spark.sessionState.conf).apply(inputPlan)
     assertDistributionRequirementsAreSatisfied(outputPlan)
@@ -434,8 +432,7 @@ class PlannerSuite extends SharedSQLContext {
       DummySparkPlan(
         children = DummySparkPlan(outputPartitioning = childPartitioning) :: Nil,
         requiredChildDistribution = Seq(distribution),
-        requiredChildOrdering = Seq(Seq.empty)),
-      None)
+        requiredChildOrdering = Seq(Seq.empty)))
 
     val inputPlan = SortMergeJoinExec(
       Literal(1) :: Nil,

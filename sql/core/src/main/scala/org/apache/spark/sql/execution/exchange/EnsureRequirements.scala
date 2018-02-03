@@ -119,7 +119,7 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
               child match {
                 // If child is an exchange, we replace it with
                 // a new one having targetPartitioning.
-                case ShuffleExchange(_, c, _) => ShuffleExchange(targetPartitioning, c)
+                case ShuffleExchange(_, c) => ShuffleExchange(targetPartitioning, c)
                 case _ => ShuffleExchange(targetPartitioning, child)
               }
           }
@@ -154,9 +154,9 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
   }
 
   def apply(plan: SparkPlan): SparkPlan = plan.transformUp {
-    case operator @ ShuffleExchange(partitioning, child, _) =>
+    case operator @ ShuffleExchange(partitioning, child) =>
       child.children match {
-        case ShuffleExchange(childPartitioning, baseChild, _)::Nil =>
+        case ShuffleExchange(childPartitioning, baseChild)::Nil =>
           if (childPartitioning.guarantees(partitioning)) child else operator
         case _ => operator
       }
