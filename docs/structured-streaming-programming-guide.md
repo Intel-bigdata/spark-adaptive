@@ -493,7 +493,7 @@ returned by `SparkSession.readStream()`. In [R](api/R/read.stream.html), with th
 #### Input Sources
 There are a few built-in sources.
 
-  - **File source** - Reads files written in a directory as a stream of data. Supported file formats are text, csv, json, parquet. See the docs of the DataStreamReader interface for a more up-to-date list, and supported options for each file format. Note that the files must be atomically placed in the given directory, which in most file systems, can be achieved by file move operations.
+  - **File source** - Reads files written in a directory as a stream of data. Supported file formats are text, csv, json, orc, parquet. See the docs of the DataStreamReader interface for a more up-to-date list, and supported options for each file format. Note that the files must be atomically placed in the given directory, which in most file systems, can be achieved by file move operations.
 
   - **Kafka source** - Reads data from Kafka. It's compatible with Kafka broker versions 0.10.0 or higher. See the [Kafka Integration Guide](structured-streaming-kafka-integration.html) for more details.
 
@@ -827,8 +827,8 @@ df.isStreaming()
 {% endhighlight %}
 </div>
 <div data-lang="r"  markdown="1">
-{% highlight bash %}
-Not available.
+{% highlight r %}
+isStreaming(df)
 {% endhighlight %}
 </div>
 </div>
@@ -883,6 +883,19 @@ windowedCounts = words.groupBy(
     window(words.timestamp, "10 minutes", "5 minutes"),
     words.word
 ).count()
+{% endhighlight %}
+
+</div>
+<div data-lang="r"  markdown="1">
+{% highlight r %}
+words <- ...  # streaming DataFrame of schema { timestamp: Timestamp, word: String }
+
+# Group the data by window and word and compute the count of each group
+windowedCounts <- count(
+                    groupBy(
+                      words,
+                      window(words$timestamp, "10 minutes", "5 minutes"),
+                      words$word))
 {% endhighlight %}
 
 </div>
@@ -960,6 +973,21 @@ windowedCounts = words \
 {% endhighlight %}
 
 </div>
+<div data-lang="r"  markdown="1">
+{% highlight r %}
+words <- ...  # streaming DataFrame of schema { timestamp: Timestamp, word: String }
+
+# Group the data by window and word and compute the count of each group
+
+words <- withWatermark(words, "timestamp", "10 minutes")
+windowedCounts <- count(
+                    groupBy(
+                      words,
+                      window(words$timestamp, "10 minutes", "5 minutes"),
+                      words$word))
+{% endhighlight %}
+
+</div>
 </div>
 
 In this example, we are defining the watermark of the query on the value of the column "timestamp", 
@@ -977,7 +1005,7 @@ at the beginning of every trigger is the red line  For example, when the engine 
 `(12:14, dog)`, it sets the watermark for the next trigger as `12:04`.
 This watermark lets the engine maintain intermediate state for additional 10 minutes to allow late
 data to be counted. For example, the data `(12:09, cat)` is out of order and late, and it falls in
-windows `12:05 - 12:15` and `12:10 - 12:20`. Since, it is still ahead of the watermark `12:04` in 
+windows `12:00 - 12:10` and `12:05 - 12:15`. Since, it is still ahead of the watermark `12:04` in 
 the trigger, the engine still maintains the intermediate counts as state and correctly updates the 
 counts of the related windows. However, when the watermark is updated to `12:11`, the intermediate 
 state for window `(12:00 - 12:10)` is cleared, and all subsequent data (e.g. `(12:04, donkey)`) 
@@ -1168,7 +1196,7 @@ returned through `Dataset.writeStream()`. You will have to specify one or more o
 
 - *Query name:* Optionally, specify a unique name of the query for identification.
 
-- *Trigger interval:* Optionally, specify the trigger interval. If it is not specified, the system will check for availability of new data as soon as the previous processing has completed. If a trigger time is missed because the previous processing has not completed, then the system will attempt to trigger at the next trigger point, not immediately after the processing has completed.
+- *Trigger interval:* Optionally, specify the trigger interval. If it is not specified, the system will check for availability of new data as soon as the previous processing has completed. If a trigger time is missed because the previous processing has not completed, then the system will trigger processing immediately.
 
 - *Checkpoint location:* For some output sinks where the end-to-end fault-tolerance can be guaranteed, specify the location where the system will write all the checkpoint information. This should be a directory in an HDFS-compatible fault-tolerant file system. The semantics of checkpointing is discussed in more detail in the next section.
 

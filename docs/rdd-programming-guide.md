@@ -91,7 +91,7 @@ so C libraries like NumPy can be used. It also works with PyPy 2.3+.
 
 Python 2.6 support was removed in Spark 2.2.0.
 
-Spark applications in Python can either be run with the `bin/spark-submit` script which includes Spark at runtime, or by including including it in your setup.py as:
+Spark applications in Python can either be run with the `bin/spark-submit` script which includes Spark at runtime, or by including it in your setup.py as:
 
 {% highlight python %}
     install_requires=[
@@ -604,7 +604,7 @@ before the `reduce`, which would cause `lineLengths` to be saved in memory after
 Spark's API relies heavily on passing functions in the driver program to run on the cluster.
 There are two recommended ways to do this:
 
-* [Anonymous function syntax](http://docs.scala-lang.org/tutorials/tour/anonymous-function-syntax.html),
+* [Anonymous function syntax](http://docs.scala-lang.org/tour/basics.html#functions),
   which can be used for short pieces of code.
 * Static methods in a global singleton object. For example, you can define `object MyFunctions` and then
   pass `MyFunctions.func1`, as follows:

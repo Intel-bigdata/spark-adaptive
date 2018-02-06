@@ -27,6 +27,7 @@ import org.apache.spark.sql.catalyst.analysis.UnsupportedOperationChecker
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, ReturnAnswer}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
+import org.apache.spark.sql.execution.adaptive.PlanQueryStage
 import org.apache.spark.sql.execution.command.{DescribeTableCommand, ExecutedCommandExec, ShowTablesCommand}
 import org.apache.spark.sql.execution.exchange.{EnsureRequirements, ReuseExchange}
 import org.apache.spark.sql.types.{BinaryType, DateType, DecimalType, TimestampType, _}
@@ -96,7 +97,11 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
    * row format conversions as needed.
    */
   protected def prepareForExecution(plan: SparkPlan): SparkPlan = {
-    preparations.foldLeft(plan) { case (sp, rule) => rule.apply(sp) }
+    if (sparkSession.sessionState.conf.adaptiveExecutionEnabled) {
+      adaptivePreparations.foldLeft(plan) { case (sp, rule) => rule.apply(sp)}
+    } else {
+      preparations.foldLeft(plan) { case (sp, rule) => rule.apply(sp)}
+    }
   }
 
   /** A sequence of rules that will be applied in order to the physical plan before execution. */
@@ -108,6 +113,16 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
     ReuseExchange(sparkSession.sessionState.conf),
     ReuseSubquery(sparkSession.sessionState.conf))
 
+  protected def adaptivePreparations: Seq[Rule[SparkPlan]] = Seq(
+    python.ExtractPythonUDFs,
+    PlanSubqueries(sparkSession),
+    EnsureRequirements(sparkSession.sessionState.conf),
+    ReuseSubquery(sparkSession.sessionState.conf),
+    // PlanQueryStage needs to be the last rule because it divides the plan into multiple sub-trees
+    // by inserting leaf node QueryStageInput. Transforming the plan after applying this rule will
+    // only transform node in a sub-tree.
+    PlanQueryStage(sparkSession.sessionState.conf))
+
   protected def stringOrError[A](f: => A): String =
     try f.toString catch { case e: AnalysisException => e.toString }
 
@@ -117,7 +132,7 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
    * `SparkSQLDriver` for CLI applications.
    */
   def hiveResultString(): Seq[String] = executedPlan match {
-    case ExecutedCommandExec(desc: DescribeTableCommand, _) =>
+    case ExecutedCommandExec(desc: DescribeTableCommand) =>
       // If it is a describe command for a Hive table, we want to have the output format
       // be similar with Hive.
       desc.run(sparkSession).map {
@@ -128,7 +143,7 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
             .mkString("\t")
       }
     // SHOW TABLES in Hive only output table names, while ours output database, table name, isTemp.
-    case command @ ExecutedCommandExec(s: ShowTablesCommand, _) if !s.isExtended =>
+    case command @ ExecutedCommandExec(s: ShowTablesCommand) if !s.isExtended =>
       command.executeCollect().map(_.getString(1))
     case other =>
       val result: Seq[Seq[Any]] = other.executeCollectPublic().map(_.toSeq).toSeq
@@ -194,13 +209,13 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
     }
   }
 
-  def simpleString: String = {
+  def simpleString: String = withRedaction {
     s"""== Physical Plan ==
        |${stringOrError(executedPlan.treeString(verbose = false))}
       """.stripMargin.trim
   }
 
-  override def toString: String = {
+  override def toString: String = withRedaction {
     def output = Utils.truncatedString(
       analyzed.output.map(o => s"${o.name}: ${o.dataType.simpleString}"), ", ")
     val analyzedPlan = Seq(
@@ -219,7 +234,7 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
     """.stripMargin.trim
   }
 
-  def stringWithStats: String = {
+  def stringWithStats: String = withRedaction {
     // trigger to compute stats for logical plans
     optimizedPlan.stats
 
@@ -229,6 +244,13 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
         |== Physical Plan ==
         |${stringOrError(executedPlan.treeString(verbose = true))}
     """.stripMargin.trim
+  }
+
+  /**
+   * Redact the sensitive information in the given string.
+   */
+  private def withRedaction(message: String): String = {
+    Utils.redact(sparkSession.sessionState.conf.stringRedationPattern, message)
   }
 
   /** A special namespace for commands that can be used to debug query execution. */
