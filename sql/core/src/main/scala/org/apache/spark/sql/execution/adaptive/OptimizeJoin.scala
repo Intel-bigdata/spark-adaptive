@@ -82,24 +82,17 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
       broadcastSidePlan: SparkPlan,
       childrenPlans: Seq[SparkPlan]) = {
     // All shuffle read should be local instead of remote
+    // If there's shuffle write on broadcast side, then find the partitions with 0 size and ignore
+    // reading them in local shuffle read.
     childrenPlans.foreach {
       case input: ShuffleQueryStageInput =>
         input.isLocalShuffle = true
-      case _ =>
-    }
-    // If there's shuffle write on broadcast side, then find the partitions with 0 size and ignore
-    // reading them in local shuffle read.
-    broadcastSidePlan match {
-      case broadcast: ShuffleQueryStageInput
-        if broadcast.childStage.stats.bytesByPartitionId.isDefined =>
-          val (startIndicies, endIndicies) = calculatePartitionStartEndIndices(broadcast.childStage
-            .stats.bytesByPartitionId.get)
-          childrenPlans.foreach {
-            case input: ShuffleQueryStageInput =>
-              input.partitionStartIndices = Some(startIndicies)
-              input.partitionEndIndices = Some(endIndicies)
-            case _ =>
-          }
+        if (input == broadcastSidePlan && input.childStage.stats.bytesByPartitionId.isDefined) {
+          val (startIndicies, endIndicies) =
+            calculatePartitionStartEndIndices(input.childStage.stats.bytesByPartitionId.get)
+          input.partitionStartIndices = Some(startIndicies)
+          input.partitionEndIndices = Some(endIndicies)
+        }
       case _ =>
     }
   }
