@@ -77,11 +77,11 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
     withSparkSession(defaultSparkSession) { spark: SparkSession =>
       val df1 =
         spark
-          .range(0, 1000, 1, numInputPartitions)
+          .range(0, 500, 1, numInputPartitions)
           .selectExpr("id % 500 as key1", "id as value1")
       val df2 =
         spark
-          .range(0, 1000, 1, numInputPartitions)
+          .range(0, 500, 1, numInputPartitions)
           .selectExpr("id % 500 as key2", "id as value2")
 
       val join = df1.join(df2, col("key1") === col("key2")).select(col("key1"), col("value2"))
@@ -95,9 +95,8 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
       // Check the answer.
       val expectedAnswer =
         spark
-          .range(0, 1000)
+          .range(0, 500)
           .selectExpr("id % 500 as key", "id as value")
-          .union(spark.range(0, 1000).selectExpr("id % 500 as key", "id as value"))
       checkAnswer(
         join,
         expectedAnswer.collect())
@@ -135,11 +134,11 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
     withSparkSession(defaultSparkSession) { spark: SparkSession =>
       val df1 =
         spark
-          .range(0, 1000, 1, numInputPartitions)
+          .range(0, 500, 1, numInputPartitions)
           .selectExpr("id % 500 as key1", "id as value1")
       val df2 =
         spark
-          .range(0, 1000, 1, numInputPartitions)
+          .range(0, 2000, 1, numInputPartitions)
           .selectExpr("id % 500 as key2", "id as value2")
       val df3 =
         spark
@@ -150,7 +149,7 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
         df1
         .join(df2, col("key1") === col("key2"))
         .join(df3, col("key2") === col("key3"))
-        .select(col("key3"), col("value1"))
+        .select(col("key3"), col("value2"))
 
       // Before Execution, there is two SortMergeJoins
       val smjBeforeExecution = join.queryExecution.executedPlan.collect {
@@ -161,9 +160,8 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
       // Check the answer.
       val expectedAnswer =
         spark
-          .range(0, 1000)
+          .range(0, 2000)
           .selectExpr("id % 500 as key", "id as value")
-          .union(spark.range(0, 1000).selectExpr("id % 500 as key", "id as value"))
       checkAnswer(
         join,
         expectedAnswer.collect())
@@ -201,15 +199,15 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
     withSparkSession(defaultSparkSession) { spark: SparkSession =>
       val df1 =
         spark
-          .range(0, 1000, 1, numInputPartitions)
+          .range(0, 500, 1, numInputPartitions)
           .selectExpr("id % 500 as key1", "id as value1")
       val df2 =
         spark
-          .range(0, 1000, 1, numInputPartitions)
+          .range(0, 2000, 1, numInputPartitions)
           .selectExpr("id % 500 as key2", "id as value2")
       val df3 =
         spark
-          .range(0, 1500, 1, numInputPartitions)
+          .range(0, 2000, 1, numInputPartitions)
           .selectExpr("id % 500 as key3", "id as value3")
 
       val join =
@@ -227,9 +225,9 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
       // Check the answer.
       val partResult =
         spark
-          .range(0, 1000)
+          .range(0, 2000)
           .selectExpr("id % 500 as key", "id as value")
-          .union(spark.range(0, 1000).selectExpr("id % 500 as key", "id as value"))
+          .union(spark.range(0, 2000).selectExpr("id % 500 as key", "id as value"))
       val expectedAnswer = partResult.union(partResult).union(partResult)
       checkAnswer(
         join,
@@ -258,24 +256,7 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
       val df = spark.range(0, 1000, 1, numInputPartitions).toDF()
       val join = df.join(df, "id")
 
-      // Before Execution, there is one SortMergeJoin
-      val smjBeforeExecution = join.queryExecution.executedPlan.collect {
-        case smj: SortMergeJoinExec => smj
-      }
-      assert(smjBeforeExecution.length === 1)
-
       checkAnswer(join, df.collect())
-
-      // During execution, the SortMergeJoin is changed to BroadcastHashJoinExec
-      val smjAfterExecution = join.queryExecution.executedPlan.collect {
-        case smj: SortMergeJoinExec => smj
-      }
-      assert(smjAfterExecution.length === 0)
-
-      val numBhjAfterExecution = join.queryExecution.executedPlan.collect {
-        case smj: BroadcastHashJoinExec => smj
-      }.length
-      assert(numBhjAfterExecution === 1)
 
       val queryStageInputs = join.queryExecution.executedPlan.collect {
         case q: QueryStageInput => q
