@@ -38,21 +38,40 @@ import org.apache.spark.util.Utils
  *                    defaults to the product of children's `sizeInBytes`.
  * @param rowCount Estimated number of rows.
  */
+
+case class PartitionStatistics(
+    bytesByPartitionId: Array[Long],
+    recordsByPartitionId: Array[Long])
+
+case class RecordStatistics(
+    record: BigInt,
+    recordsByPartitionId: Array[Long])
+
 case class Statistics(
     sizeInBytes: BigInt,
-    rowCount: Option[BigInt] = None) {
+    bytesByPartitionId: Option[Array[Long]] = None,
+    recordStatistics: Option[RecordStatistics] = None) {
 
   override def toString: String = "Statistics(" + simpleString + ")"
 
   /** Readable string representation for the Statistics. */
   def simpleString: String = {
     Seq(s"sizeInBytes=${Utils.bytesToString(sizeInBytes)}",
-      if (rowCount.isDefined) {
+      if (recordStatistics.isDefined) {
         // Show row count in scientific notation.
-        s"rowCount=${BigDecimal(rowCount.get, new MathContext(3, RoundingMode.HALF_UP)).toString()}"
+        s"record=${BigDecimal(recordStatistics.get.record,
+          new MathContext(3, RoundingMode.HALF_UP)).toString()}"
       } else {
         ""
       }
     ).filter(_.nonEmpty).mkString(", ")
+  }
+
+  def getPartitionStatistics : Option[PartitionStatistics] = {
+    if (bytesByPartitionId.isDefined && recordStatistics.isDefined) {
+      Some(PartitionStatistics(bytesByPartitionId.get, recordStatistics.get.recordsByPartitionId))
+    } else {
+      None
+    }
   }
 }

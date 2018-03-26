@@ -211,16 +211,71 @@ object SQLConf {
     .booleanConf
     .createWithDefault(false)
 
+  val ADAPTIVE_EXECUTION_JOIN_ENABLED = buildConf("spark.sql.adaptive.join.enabled")
+    .doc("When true and adaptive execution is enabled, a better join strategy is determined at " +
+      "runtime.")
+    .booleanConf
+    .createWithDefault(true)
+
+  val ADAPTIVE_EXECUTION_SKEWED_JOIN_ENABLED = buildConf("spark.sql.adaptive.skewedJoin.enabled")
+    .doc("When true and adaptive execution is enabled, a skewed join is automatically handled at " +
+      "runtime.")
+    .booleanConf
+    .createWithDefault(false)
+
+  val ADAPTIVE_EXECUTION_SKEWED_PARTITION_FACTOR =
+    buildConf("spark.sql.adaptive.skewedPartitionFactor")
+    .doc("A partition is considered as a skewed partition if its size is larger than this factor " +
+      "multiple the median partition size and also larger than " +
+      "spark.sql.adaptive.skewedPartitionSizeThreshold, or if its row count is larger than this " +
+      "factor multiple the median row count and also larger than " +
+      "spark.sql.adaptive.skewedPartitionRowCountThreshold.")
+    .intConf
+    .createWithDefault(10)
+
+  val ADAPTIVE_EXECUTION_SKEWED_PARTITION_SIZE_THRESHOLD =
+    buildConf("spark.sql.adaptive.skewedPartitionSizeThreshold")
+    .doc("Configures the minimum size in bytes for a partition that is considered as a skewed " +
+      "partition in adaptive skewed join.")
+    .bytesConf(ByteUnit.BYTE)
+    .createWithDefault(64 * 1024 * 1024)
+
+  val ADAPTIVE_EXECUTION_SKEWED_PARTITION_ROW_COUNT_THRESHOLD =
+    buildConf("spark.sql.adaptive.skewedPartitionRowCountThreshold")
+    .doc("Configures the minimum row count for a partition that is considered as a skewed " +
+      "partition in adaptive skewed join.")
+    .longConf
+    .createWithDefault(10L * 1000 * 1000)
+
+  val ADAPTIVE_EXECUTION_TARGET_POSTSHUFFLE_ROW_COUNT =
+    buildConf("spark.sql.adaptive.shuffle.targetPostShuffleRowCount")
+    .doc("The target post-shuffle row count of a task.")
+    .longConf
+    .createWithDefault(20L * 1000 * 1000)
+
   val SHUFFLE_MIN_NUM_POSTSHUFFLE_PARTITIONS =
     buildConf("spark.sql.adaptive.minNumPostShufflePartitions")
-      .internal()
-      .doc("The advisory minimal number of post-shuffle partitions provided to " +
-        "ExchangeCoordinator. This setting is used in our test to make sure we " +
-        "have enough parallelism to expose issues that will not be exposed with a " +
-        "single partition. When the value is a non-positive value, this setting will " +
-        "not be provided to ExchangeCoordinator.")
+      .doc("The advisory minimum number of post-shuffle partitions used in adaptive execution.")
       .intConf
-      .createWithDefault(-1)
+      .checkValue(numPartitions => numPartitions > 0, "The minimum shuffle partition number " +
+        "must be a positive integer.")
+      .createWithDefault(1)
+
+  val SHUFFLE_MAX_NUM_POSTSHUFFLE_PARTITIONS =
+    buildConf("spark.sql.adaptive.maxNumPostShufflePartitions")
+      .doc("The advisory maximum number of post-shuffle partitions used in adaptive execution.")
+      .intConf
+      .checkValue(numPartitions => numPartitions > 0, "The maximum shuffle partition number " +
+        "must be a positive integer.")
+      .createWithDefault(500)
+
+  val ADAPTIVE_EXECUTION_MAX_ADDITIONAL_SHUFFLE_NUM =
+    buildConf("spark.sql.adaptive.maxAdditionalShuffleNum")
+      .doc("The maximum number of additional shuffle allowed during OptimizeJoin in adaptive" +
+        " execution. We keep the default number to 0 but in some cases like SortMergeJoin can" +
+        " cast to BroadCastJoin, this config can control the optimization.")
+      .intConf
+      .createWithDefault(0)
 
   val SUBEXPRESSION_ELIMINATION_ENABLED =
     buildConf("spark.sql.subexpressionElimination.enabled")
@@ -987,8 +1042,27 @@ class SQLConf extends Serializable with Logging {
 
   def adaptiveExecutionEnabled: Boolean = getConf(ADAPTIVE_EXECUTION_ENABLED)
 
-  def minNumPostShufflePartitions: Int =
-    getConf(SHUFFLE_MIN_NUM_POSTSHUFFLE_PARTITIONS)
+  def adaptiveJoinEnabled: Boolean = getConf(ADAPTIVE_EXECUTION_JOIN_ENABLED)
+
+  def adaptiveSkewedJoinEnabled: Boolean = getConf(ADAPTIVE_EXECUTION_SKEWED_JOIN_ENABLED)
+
+  def adaptiveSkewedFactor : Int = getConf(ADAPTIVE_EXECUTION_SKEWED_PARTITION_FACTOR)
+
+  def adaptiveSkewedSizeThreshold : Long =
+    getConf(ADAPTIVE_EXECUTION_SKEWED_PARTITION_SIZE_THRESHOLD)
+
+  def adaptiveSkewedRowCountThreshold : Long =
+    getConf(ADAPTIVE_EXECUTION_SKEWED_PARTITION_ROW_COUNT_THRESHOLD)
+
+  def adaptiveTargetPostShuffleRowCount: Long =
+    getConf(ADAPTIVE_EXECUTION_TARGET_POSTSHUFFLE_ROW_COUNT)
+
+  def minNumPostShufflePartitions: Int = getConf(SHUFFLE_MIN_NUM_POSTSHUFFLE_PARTITIONS)
+
+  def maxNumPostShufflePartitions: Int = getConf(SHUFFLE_MAX_NUM_POSTSHUFFLE_PARTITIONS)
+
+  def adaptiveMaxAdditionalShuffleNum: Int =
+    getConf(ADAPTIVE_EXECUTION_MAX_ADDITIONAL_SHUFFLE_NUM)
 
   def minBatchesToRetain: Int = getConf(MIN_BATCHES_TO_RETAIN)
 

@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution.statsEstimation
 
 import org.apache.spark.sql.catalyst.plans.{LeftAnti, LeftSemi}
 import org.apache.spark.sql.execution._
+import org.apache.spark.sql.execution.adaptive.QueryStage
 import org.apache.spark.sql.execution.aggregate._
 import org.apache.spark.sql.execution.exchange.ShuffleExchange
 import org.apache.spark.sql.execution.joins.{HashJoin, SortMergeJoinExec}
@@ -54,7 +55,7 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
   override def visitHashAggregateExec(p: HashAggregateExec): Statistics = {
     if (p.groupingExpressions.isEmpty) {
       val sizeInBytes = 8 + p.output.map(_.dataType.defaultSize).sum
-      Statistics(sizeInBytes, Some(1))
+      Statistics(sizeInBytes)
     } else {
       visitUnaryExecNode(p)
     }
@@ -73,7 +74,16 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
   override def visitShuffleExchange(p: ShuffleExchange): Statistics = {
     if (p.mapOutputStatistics != null) {
       val sizeInBytes = p.mapOutputStatistics.bytesByPartitionId.sum
-      Statistics(sizeInBytes = sizeInBytes)
+      val bytesByPartitionId = p.mapOutputStatistics.bytesByPartitionId
+      if (p.mapOutputStatistics.recordsByPartitionId.nonEmpty) {
+        val record = p.mapOutputStatistics.recordsByPartitionId.sum
+        val recordsByPartitionId = p.mapOutputStatistics.recordsByPartitionId
+        Statistics(sizeInBytes = sizeInBytes,
+          bytesByPartitionId = Some(bytesByPartitionId),
+          recordStatistics = Some(RecordStatistics(record, recordsByPartitionId)))
+      } else {
+        Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
+      }
     } else {
       visitUnaryExecNode(p)
     }
@@ -82,7 +92,7 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
   override def visitSortAggregateExec(p: SortAggregateExec): Statistics = {
     if (p.groupingExpressions.isEmpty) {
       val sizeInBytes = 8 + p.output.map(_.dataType.defaultSize).sum
-      Statistics(sizeInBytes, Some(1))
+      Statistics(sizeInBytes)
     } else {
       visitUnaryExecNode(p)
     }
@@ -101,9 +111,18 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
   override def visitQueryStage(p: QueryStage): Statistics = {
     if (p.mapOutputStatistics != null) {
       val sizeInBytes = p.mapOutputStatistics.bytesByPartitionId.sum
-      Statistics(sizeInBytes = sizeInBytes)
+      val bytesByPartitionId = p.mapOutputStatistics.bytesByPartitionId
+      if (p.mapOutputStatistics.recordsByPartitionId.nonEmpty) {
+        val record = p.mapOutputStatistics.recordsByPartitionId.sum
+        val recordsByPartitionId = p.mapOutputStatistics.recordsByPartitionId
+        Statistics(sizeInBytes = sizeInBytes,
+          bytesByPartitionId = Some(bytesByPartitionId),
+          recordStatistics = Some(RecordStatistics(record, recordsByPartitionId)))
+      } else {
+        Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
+      }
     } else {
-      p.child.stats
+      visitUnaryExecNode(p)
     }
   }
 }

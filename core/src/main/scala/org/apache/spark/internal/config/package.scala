@@ -300,13 +300,27 @@ package object config {
       .booleanConf
       .createWithDefault(false)
 
-  private[spark] val SHUFFLE_ACCURATE_BLOCK_THRESHOLD =
+  private[spark] val SHUFFLE_ACCURATE_BLOCK_SIZE_THRESHOLD =
     ConfigBuilder("spark.shuffle.accurateBlockThreshold")
       .doc("When we compress the size of shuffle blocks in HighlyCompressedMapStatus, we will " +
         "record the size accurately if it's above this config. This helps to prevent OOM by " +
         "avoiding underestimating shuffle block size when fetch shuffle blocks.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefault(100 * 1024 * 1024)
+
+  private[spark] val SHUFFLE_STATISTICS_VERBOSE =
+    ConfigBuilder("spark.shuffle.statistics.verbose")
+      .doc("Collect shuffle statistics in verbose mode, including row counts etc.")
+      .booleanConf
+      .createWithDefault(false)
+
+  private[spark] val SHUFFLE_ACCURATE_BLOCK_RECORD_THRESHOLD =
+    ConfigBuilder("spark.shuffle.accurateBlockRecordThreshold")
+      .doc("When we compress the records number of shuffle blocks in HighlyCompressedMapStatus, " +
+        "we will record the number accurately if it's above this config. The record number will " +
+        "be used for data skew judgement when spark.shuffle.statistics.verbose is set true.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefault(2 * 1024 * 1024)
 
   private[spark] val SHUFFLE_REGISTRATION_TIMEOUT =
     ConfigBuilder("spark.shuffle.registration.timeout")
@@ -376,4 +390,22 @@ package object config {
       .checkValue(v => v > 0 && v <= Int.MaxValue,
         s"The buffer size must be greater than 0 and less than ${Int.MaxValue}.")
       .createWithDefault(1024 * 1024)
+
+  private[spark] val SHUFFLE_HIGHLY_COMPRESSED_MAP_STATUS_THRESHOLD =
+    ConfigBuilder("spark.shuffle.highlyCompressedMapStatusThreshold")
+    .doc("HighlyCompressedMapStatus is used if shuffle partition number is larger than the " +
+      "threshold. Otherwise CompressedMapStatus is used.")
+    .intConf
+    .createWithDefault(2000)
+
+  private[spark] val SHUFFLE_MAP_OUTPUT_PARALLEL_AGGREGATION_THRESHOLD =
+    ConfigBuilder("spark.shuffle.mapOutput.parallelAggregationThreshold")
+      .internal()
+      .doc("Multi-thread is used when the number of mappers * shuffle partitions is greater than " +
+        "or equal to this threshold. Note that the actual parallelism is calculated by number of " +
+        "mappers * shuffle partitions / this threshold + 1, so this threshold should be positive.")
+      .intConf
+      .checkValue(v => v > 0, "The threshold should be positive.")
+      .createWithDefault(10000000)
+
 }

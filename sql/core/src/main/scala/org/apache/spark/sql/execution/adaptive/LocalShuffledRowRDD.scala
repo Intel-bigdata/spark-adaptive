@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.execution
+package org.apache.spark.sql.execution.adaptive
 
 import org.apache.spark._
 import org.apache.spark.rdd.{RDD, ShuffledRDDPartition}
@@ -39,15 +39,29 @@ import org.apache.spark.sql.catalyst.InternalRow
  * RDD's partition number.
  */
 class LocalShuffledRowRDD(
-    var dependency: ShuffleDependency[Int, InternalRow, InternalRow])
+    var dependency: ShuffleDependency[Int, InternalRow, InternalRow],
+    specifiedPartitionStartIndices: Option[Array[Int]] = None,
+    specifiedPartitionEndIndices: Option[Array[Int]] = None)
   extends RDD[InternalRow](dependency.rdd.context, Nil) {
 
   private[this] val numPreShufflePartitions = dependency.partitioner.numPartitions
   private[this] val numPostShufflePartitions = dependency.rdd.partitions.length
 
+  private[this] val partitionStartIndices: Array[Int] = specifiedPartitionStartIndices match {
+    case Some(indices) => indices
+    case None => Array(0)
+  }
+
+  private[this] val partitionEndIndices: Array[Int] = specifiedPartitionEndIndices match {
+    case Some(indices) => indices
+    case None if specifiedPartitionStartIndices.isEmpty => Array(numPreShufflePartitions)
+    case _ => specifiedPartitionStartIndices.get.drop(1) :+ numPreShufflePartitions
+  }
+
   override def getDependencies: Seq[Dependency[_]] = List(dependency)
 
   override def getPartitions: Array[Partition] = {
+    assert(partitionStartIndices.length == partitionEndIndices.length)
     Array.tabulate[Partition](numPostShufflePartitions) { i =>
       new ShuffledRDDPartition(i)
     }
@@ -56,21 +70,37 @@ class LocalShuffledRowRDD(
   override def getPreferredLocations(partition: Partition): Seq[String] = {
     val tracker = SparkEnv.get.mapOutputTracker.asInstanceOf[MapOutputTrackerMaster]
     val dep = dependencies.head.asInstanceOf[ShuffleDependency[_, _, _]]
-    tracker.getMapLocation(dep, partition.index)
+    tracker.getMapLocation(dep, partition.index, partition.index + 1)
   }
 
   override def compute(split: Partition, context: TaskContext): Iterator[InternalRow] = {
-    val mapId = split.index
-    // The range of pre-shuffle partitions that we are fetching at here is
-    // [0, numPreShufflePartitions - 1].
-    val reader =
-      SparkEnv.get.shuffleManager.getReader(
-        dependency.shuffleHandle,
-        0,
-        numPreShufflePartitions,
-        context,
-        mapId)
-    reader.read().asInstanceOf[Iterator[Product2[Int, InternalRow]]].map(_._2)
+    val shuffledRowPartition = split.asInstanceOf[ShuffledRDDPartition]
+    val mapId = shuffledRowPartition.index
+    // Connect the the InternalRows read by each ShuffleReader
+    new Iterator[InternalRow] {
+      val readers = partitionStartIndices.zip(partitionEndIndices).map { case (start, end) =>
+        SparkEnv.get.shuffleManager.getReader(
+          dependency.shuffleHandle,
+          start,
+          end,
+          context,
+          mapId,
+          mapId + 1)
+      }
+
+      var i = 0
+      var iter = readers(i).read().asInstanceOf[Iterator[Product2[Int, InternalRow]]].map(_._2)
+
+      override def hasNext = {
+        while (iter.hasNext == false && i + 1 <= readers.length - 1) {
+          i += 1
+          iter = readers(i).read().asInstanceOf[Iterator[Product2[Int, InternalRow]]].map(_._2)
+        }
+        iter.hasNext
+      }
+
+      override def next() = iter.next()
+    }
   }
 
   override def clearDependencies() {
