@@ -126,14 +126,19 @@ abstract class QueryStage extends UnaryExecNode {
         val (partitionStartIndices, partitionEndIndices) =
           exchangeCoordinator.estimatePartitionStartEndIndices(
             childMapOutputStatistics, queryStageInputs(0).skewedPartitions.get)
-        queryStageInputs.foreach { i =>
-          i.partitionStartIndices = Some(partitionStartIndices)
-          i.partitionEndIndices = Some(partitionEndIndices)
+        child = child.transform {
+          case ShuffleQueryStageInput(childStage, output, isLocalShuffle, skewedPartitions, _, _) =>
+            ShuffleQueryStageInput(childStage, output, isLocalShuffle, skewedPartitions,
+              Some(partitionStartIndices), Some(partitionEndIndices))
         }
       } else {
         val partitionStartIndices =
           exchangeCoordinator.estimatePartitionStartIndices(childMapOutputStatistics)
-        queryStageInputs.foreach(_.partitionStartIndices = Some(partitionStartIndices))
+        child = child.transform {
+          case ShuffleQueryStageInput(childStage, output, isLocalShuffle, skewedPartitions, _, _) =>
+            ShuffleQueryStageInput(childStage, output, isLocalShuffle, skewedPartitions,
+              Some(partitionStartIndices))
+        }
       }
     }
 

@@ -79,29 +79,27 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
   // After transforming to BroadcastJoin from SortMergeJoin, local shuffle read should be used and
   // there's opportunity to read less partitions based on previous shuffle write results.
   private def optimizeForLocalShuffleReadLessPartitions(
-      broadcastSidePlan: SparkPlan,
-      childrenPlans: Seq[SparkPlan]) = {
-    // All shuffle read should be local instead of remote
-    childrenPlans.foreach {
-      case input: ShuffleQueryStageInput =>
-        input.isLocalShuffle = true
-      case _ =>
-    }
-    // If there's shuffle write on broadcast side, then find the partitions with 0 size and ignore
-    // reading them in local shuffle read.
-    broadcastSidePlan match {
+      broadcastJoinPlan: SparkPlan,
+      broadcastSidePlan: SparkPlan): SparkPlan = {
+
+    val (startIndicies, endIndicies) = broadcastSidePlan match {
       case broadcast: ShuffleQueryStageInput
         if broadcast.childStage.stats.bytesByPartitionId.isDefined =>
-          val (startIndicies, endIndicies) = calculatePartitionStartEndIndices(broadcast.childStage
-            .stats.bytesByPartitionId.get)
-          childrenPlans.foreach {
-            case input: ShuffleQueryStageInput =>
-              input.partitionStartIndices = Some(startIndicies)
-              input.partitionEndIndices = Some(endIndicies)
-            case _ =>
-          }
-      case _ =>
+        val (start, end) =
+          calculatePartitionStartEndIndices(broadcast.childStage.stats.bytesByPartitionId.get)
+        (Some(start), Some(end))
+      case _ => (None, None)
     }
+
+    // All shuffle read should be local and partitions read should be as less as possible
+    val optimized = broadcastJoinPlan.children.map {
+      case ShuffleQueryStageInput(childStage, output, _, skewedPartitions, _, _) =>
+        ShuffleQueryStageInput(childStage, output, true, skewedPartitions, startIndicies,
+          endIndicies)
+      case others => others
+    }
+
+    broadcastJoinPlan.withNewChildren(optimized)
   }
 
   // While the changes in optimizeForLocalShuffleReadLessPartitions has additional exchanges,

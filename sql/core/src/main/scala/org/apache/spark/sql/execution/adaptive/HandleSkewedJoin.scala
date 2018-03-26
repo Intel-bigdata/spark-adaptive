@@ -159,9 +159,17 @@ case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
       }
       logInfo(s"skewed partition number is ${skewedPartitions.size}")
       if (skewedPartitions.size > 0) {
-        left.skewedPartitions = Some(skewedPartitions)
-        right.skewedPartitions = Some(skewedPartitions)
-        UnionExec(subJoins.toList)
+        val newSubJoins = subJoins.map {
+          case smj @ SortMergeJoinExec(leftKeys, rightKeys, joinType, condition,
+            SortExec(sortOrder, global, left @ ShuffleQueryStageInput(childStage, output, isLocalShuffle, _, partitionStartIndices, partitionEndIndices), testSpillFrequency),
+            SortExec(sortOrderR, globalR, right @ ShuffleQueryStageInput(childStageR, outputR, isLocalShuffleR, _, partitionStartIndicesR, partitionEndIndicesR), testSpillFrequencyR)) => {
+            SortMergeJoinExec(leftKeys, rightKeys, joinType, condition,
+              SortExec(sortOrder, global, ShuffleQueryStageInput(childStage, output, isLocalShuffle, Some(skewedPartitions), partitionStartIndices, partitionEndIndices), testSpillFrequency),
+              SortExec(sortOrderR, globalR, ShuffleQueryStageInput(childStageR, outputR, isLocalShuffleR, Some(skewedPartitions), partitionStartIndicesR, partitionEndIndicesR), testSpillFrequencyR))
+          }
+          case others => others
+        }
+        UnionExec(newSubJoins.toList)
       } else {
         smj
       }
