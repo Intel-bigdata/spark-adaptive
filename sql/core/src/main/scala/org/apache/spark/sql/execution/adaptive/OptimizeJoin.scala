@@ -79,19 +79,33 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
   // After transforming to BroadcastJoin from SortMergeJoin, local shuffle read should be used and
   // there's opportunity to read less partitions based on previous shuffle write results.
   private def optimizeForLocalShuffleReadLessPartitions(
+      joinType: JoinType,
       broadcastSidePlan: SparkPlan,
       childrenPlans: Seq[SparkPlan]) = {
     // All shuffle read should be local instead of remote
-    // If there's shuffle write on broadcast side, then find the partitions with 0 size and ignore
-    // reading them in local shuffle read.
     childrenPlans.foreach {
       case input: ShuffleQueryStageInput =>
         input.isLocalShuffle = true
-        if (input == broadcastSidePlan && input.childStage.stats.bytesByPartitionId.isDefined) {
-          val (startIndicies, endIndicies) =
-            calculatePartitionStartEndIndices(input.childStage.stats.bytesByPartitionId.get)
-          input.partitionStartIndices = Some(startIndicies)
-          input.partitionEndIndices = Some(endIndicies)
+      case _ =>
+    }
+    // If there's shuffle write on broadcast side, then find the partitions with 0 size and ignore
+    // reading them in local shuffle read.
+    broadcastSidePlan match {
+      case broadcast: ShuffleQueryStageInput
+        if broadcast.childStage.stats.bytesByPartitionId.isDefined =>
+        val (startIndicies, endIndicies) = calculatePartitionStartEndIndices(broadcast.childStage
+          .stats.bytesByPartitionId.get)
+        broadcast.partitionStartIndices = Some(startIndicies)
+        broadcast.partitionEndIndices = Some(endIndicies)
+        joinType match {
+          case _: InnerLike =>
+            childrenPlans.foreach {
+              case input: ShuffleQueryStageInput =>
+                input.partitionStartIndices = Some(startIndicies)
+                input.partitionEndIndices = Some(endIndicies)
+              case _ =>
+            }
+          case _ =>
         }
       case _ =>
     }
@@ -141,7 +155,8 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
             case BuildRight => (removeSort(right))
           }
           // Local shuffle read less partitions based on broadcastSide's row statistics
-          optimizeForLocalShuffleReadLessPartitions(broadcastSidePlan, broadcastJoin.children)
+          optimizeForLocalShuffleReadLessPartitions(joinType, broadcastSidePlan,
+              broadcastJoin.children)
 
           // Apply EnsureRequirement rule to check if any new Exchange will be added. If the added
           // Exchange number less than spark.sql.adaptive.maxAdditionalShuffleNum, we convert the
