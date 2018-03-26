@@ -93,20 +93,20 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
     broadcastSidePlan match {
       case broadcast: ShuffleQueryStageInput
         if broadcast.childStage.stats.bytesByPartitionId.isDefined =>
-        val (startIndicies, endIndicies) = calculatePartitionStartEndIndices(broadcast.childStage
-          .stats.bytesByPartitionId.get)
-        broadcast.partitionStartIndices = Some(startIndicies)
-        broadcast.partitionEndIndices = Some(endIndicies)
-        joinType match {
-          case _: InnerLike =>
-            childrenPlans.foreach {
-              case input: ShuffleQueryStageInput =>
-                input.partitionStartIndices = Some(startIndicies)
-                input.partitionEndIndices = Some(endIndicies)
-              case _ =>
-            }
-          case _ =>
-        }
+          val (startIndicies, endIndicies) = calculatePartitionStartEndIndices(broadcast.childStage
+            .stats.bytesByPartitionId.get)
+          broadcast.partitionStartIndices = Some(startIndicies)
+          broadcast.partitionEndIndices = Some(endIndicies)
+          joinType match {
+            case _: InnerLike =>
+              childrenPlans.foreach {
+                case input: ShuffleQueryStageInput =>
+                  input.partitionStartIndices = Some(startIndicies)
+                  input.partitionEndIndices = Some(endIndicies)
+                case _ =>
+              }
+            case _ =>
+          }
       case _ =>
     }
   }
