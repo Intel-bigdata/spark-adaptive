@@ -191,7 +191,7 @@ private[spark] class IndexShuffleBlockResolver(
     }
   }
 
-  override def getBlockData(blockId: ShuffleBlockId): ManagedBuffer = {
+  override def getBlockData(blockId: ShuffleBlockIdBase): ManagedBuffer = {
     // The block is actually going to be a range of a single map output file for this map, so
     // find out the consolidated file, then the offset within that from our index
     val indexFile = getIndexFile(blockId.shuffleId, blockId.mapId)
@@ -203,13 +203,21 @@ private[spark] class IndexShuffleBlockResolver(
     // class of issue from re-occurring in the future which is why they are left here even though
     // SPARK-22982 is fixed.
     val channel = Files.newByteChannel(indexFile.toPath)
-    channel.position(blockId.reduceId * 8L)
     val in = new DataInputStream(Channels.newInputStream(channel))
     try {
+      channel.position(blockId.reduceId * 8)
       val offset = in.readLong()
+      var expectedPosition = 0
+      blockId match {
+        case bid: ContinuousShuffleBlockId =>
+          val tempId = blockId.reduceId + bid.numBlocks
+          channel.position(tempId * 8)
+          expectedPosition = tempId * 8 + 8
+        case _ =>
+          expectedPosition = blockId.reduceId * 8 + 16
+      }
       val nextOffset = in.readLong()
       val actualPosition = channel.position()
-      val expectedPosition = blockId.reduceId * 8L + 16
       if (actualPosition != expectedPosition) {
         throw new Exception(s"SPARK-22982: Incorrect channel position after index file reads: " +
           s"expected $expectedPosition but actual position was $actualPosition.")
