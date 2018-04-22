@@ -17,11 +17,11 @@
 
 package org.apache.spark.sql.execution.adaptive
 
-import java.util.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.duration.Duration
 
-import scala.collection.mutable
-
-import org.apache.spark.{broadcast, MapOutputStatistics}
+import org.apache.spark.MapOutputStatistics
+import org.apache.spark.broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
@@ -53,40 +53,30 @@ abstract class QueryStage extends UnaryExecNode {
   override def outputOrdering: Seq[SortOrder] = child.outputOrdering
 
   def executeChildStages(): Unit = {
-    // Execute childStages. Use a thread pool to avoid blocking on one child stage.
-    val executionId = sqlContext.sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
-
-    val queryStageSubmitTasks = mutable.ArrayBuffer[Future[_]]()
-
     // Handle broadcast stages
     val broadcastQueryStages: Seq[BroadcastQueryStage] = child.collect {
       case BroadcastQueryStageInput(queryStage: BroadcastQueryStage, _) => queryStage
     }
-    broadcastQueryStages.foreach { queryStage =>
-      queryStageSubmitTasks += QueryStage.queryStageThreadPool.submit(
-        new Runnable {
-          override def run(): Unit = {
-            queryStage.prepareBroadcast()
-          }
-        })
+    val broadcastFutures = broadcastQueryStages.map { queryStage =>
+      Future { queryStage.prepareBroadcast() }(ThreadUtils.sameThread)
     }
 
     // Submit shuffle stages
+    val executionId = sqlContext.sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
     val shuffleQueryStages: Seq[ShuffleQueryStage] = child.collect {
       case ShuffleQueryStageInput(queryStage: ShuffleQueryStage, _, _, _, _, _) => queryStage
     }
-    shuffleQueryStages.foreach { queryStage =>
-      queryStageSubmitTasks += QueryStage.queryStageThreadPool.submit(
-        new Runnable {
-          override def run(): Unit = {
-            SQLExecution.withExecutionId(sqlContext.sparkContext, executionId) {
-              queryStage.execute()
-            }
-          }
-        })
+    val shuffleStageFutures = shuffleQueryStages.map { queryStage =>
+      Future {
+        SQLExecution.withExecutionId(sqlContext.sparkContext, executionId) {
+          queryStage.execute()
+        }
+      }(QueryStage.executionContext)
     }
 
-    queryStageSubmitTasks.foreach(_.get())
+    (broadcastFutures ++ shuffleStageFutures).foreach { future =>
+      ThreadUtils.awaitResult(future, Duration.Inf)
+    }
   }
 
   def executeStage(): RDD[InternalRow] = child.execute()
@@ -181,8 +171,8 @@ abstract class QueryStage extends UnaryExecNode {
 }
 
 object QueryStage {
-  lazy val queryStageThreadPool =
-    ThreadUtils.newDaemonCachedThreadPool("adaptive-query-stage-pool")
+  private[execution] val executionContext = ExecutionContext.fromExecutorService(
+    ThreadUtils.newDaemonCachedThreadPool("adaptive-query-stage"))
 }
 
 /** The last QueryStage of an execution plan. */
