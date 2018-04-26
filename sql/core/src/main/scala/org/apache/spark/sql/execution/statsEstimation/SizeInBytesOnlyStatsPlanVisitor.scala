@@ -45,7 +45,10 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
 
   override def default(p: SparkPlan): Statistics = p match {
     case p: LeafExecNode => p.computeStats()
-    case _: SparkPlan => Statistics(sizeInBytes = p.children.map(_.stats.sizeInBytes).product)
+    case _: SparkPlan => Statistics(
+      sizeInBytes = p.children.map(_.stats.sizeInBytes).product,
+      rowCount =
+        Some(p.children.filter(_.stats.rowCount.nonEmpty).map(_.stats.rowCount.get).product))
   }
 
   override def visitFilterExec(p: FilterExec): Statistics = visitUnaryExecNode(p)
@@ -79,6 +82,7 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
         val record = p.mapOutputStatistics.recordsByPartitionId.sum
         val recordsByPartitionId = p.mapOutputStatistics.recordsByPartitionId
         Statistics(sizeInBytes = sizeInBytes,
+          rowCount = Some(record),
           bytesByPartitionId = Some(bytesByPartitionId),
           recordStatistics = Some(RecordStatistics(record, recordsByPartitionId)))
       } else {
@@ -116,6 +120,7 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
         val record = p.mapOutputStatistics.recordsByPartitionId.sum
         val recordsByPartitionId = p.mapOutputStatistics.recordsByPartitionId
         Statistics(sizeInBytes = sizeInBytes,
+          rowCount = Some(record),
           bytesByPartitionId = Some(bytesByPartitionId),
           recordStatistics = Some(RecordStatistics(record, recordsByPartitionId)))
       } else {

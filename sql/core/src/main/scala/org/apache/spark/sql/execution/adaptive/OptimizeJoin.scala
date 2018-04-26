@@ -40,7 +40,11 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
   }
 
   private def canBroadcast(plan: SparkPlan): Boolean = {
-    plan.stats.sizeInBytes >= 0 && plan.stats.sizeInBytes <= conf.adaptiveBroadcastJoinThreshold
+    val sizeCanBroadcast =
+      plan.stats.sizeInBytes >= 0 && plan.stats.sizeInBytes <= conf.adaptiveBroadcastJoinThreshold
+    val rowCountCanBroadcast =
+      plan.stats.rowCount.getOrElse[BigInt](0) <= conf.adaptiveTargetPostShuffleRowCount
+    sizeCanBroadcast && rowCountCanBroadcast
   }
 
   private def removeSort(plan: SparkPlan): SparkPlan = {

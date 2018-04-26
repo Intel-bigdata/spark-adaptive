@@ -49,6 +49,7 @@ case class RecordStatistics(
 
 case class Statistics(
     sizeInBytes: BigInt,
+    rowCount: Option[BigInt] = None,
     bytesByPartitionId: Option[Array[Long]] = None,
     recordStatistics: Option[RecordStatistics] = None) {
 
