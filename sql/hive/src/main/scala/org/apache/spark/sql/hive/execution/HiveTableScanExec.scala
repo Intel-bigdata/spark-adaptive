@@ -36,6 +36,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.metric.SQLMetrics
+import org.apache.spark.sql.execution.statsEstimation.Statistics
 import org.apache.spark.sql.hive._
 import org.apache.spark.sql.hive.client.HiveClientImpl
 import org.apache.spark.sql.internal.SQLConf
@@ -212,4 +213,9 @@ case class HiveTableScanExec(
   }
 
   override def otherCopyArgs: Seq[AnyRef] = Seq(sparkSession)
+
+  override def computeStats(): Statistics = {
+    val stats = relation.computeStats()
+    Statistics(stats.sizeInBytes)
+  }
 }

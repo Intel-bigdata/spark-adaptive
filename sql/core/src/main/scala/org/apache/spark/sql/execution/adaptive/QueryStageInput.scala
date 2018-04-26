@@ -23,6 +23,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeMap, Expression, SortOrder}
 import org.apache.spark.sql.catalyst.plans.physical.{HashPartitioning, Partitioning, UnknownPartitioning}
 import org.apache.spark.sql.execution._
+import org.apache.spark.sql.execution.statsEstimation.Statistics
 
 /**
  * QueryStageInput is the leaf node of a QueryStage and is used to hide its child stage. It gets
@@ -53,6 +54,10 @@ abstract class QueryStageInput extends LeafExecNode {
 
   override def outputOrdering: Seq[SortOrder] = {
     childStage.outputOrdering.map(updateAttr(_).asInstanceOf[SortOrder])
+  }
+
+  override def computeStats(): Statistics = {
+    childStage.stats
   }
 
   override def generateTreeString(

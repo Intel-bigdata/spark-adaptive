@@ -27,6 +27,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode, ExpressionCanonicalizer}
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution.metric.SQLMetrics
+import org.apache.spark.sql.execution.statsEstimation.Statistics
 import org.apache.spark.sql.types.LongType
 import org.apache.spark.util.ThreadUtils
 import org.apache.spark.util.random.{BernoulliCellSampler, PoissonSampler}
@@ -540,6 +541,10 @@ case class RangeExec(range: org.apache.spark.sql.catalyst.plans.logical.Range)
   }
 
   override def simpleString: String = s"Range ($start, $end, step=$step, splits=$numSlices)"
+
+  override def computeStats: Statistics = {
+    Statistics(LongType.defaultSize * numElements)
+  }
 }
 
 /**
