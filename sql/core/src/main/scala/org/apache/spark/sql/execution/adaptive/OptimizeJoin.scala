@@ -43,7 +43,7 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
     val sizeCanBroadcast =
       plan.stats.sizeInBytes >= 0 && plan.stats.sizeInBytes <= conf.adaptiveBroadcastJoinThreshold
     val rowCountCanBroadcast =
-      plan.stats.rowCount.getOrElse[BigInt](0) <= conf.adaptiveTargetPostShuffleRowCount
+      plan.stats.rowCount.getOrElse[BigInt](0) <= conf.adaptiveBroadcastJoinRowCountThreshold
     sizeCanBroadcast && rowCountCanBroadcast
   }
 
