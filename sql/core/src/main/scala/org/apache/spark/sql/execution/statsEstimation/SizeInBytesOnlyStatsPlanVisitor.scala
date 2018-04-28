@@ -47,8 +47,7 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
     case p: LeafExecNode => p.computeStats()
     case _: SparkPlan => Statistics(
       sizeInBytes = p.children.map(_.stats.sizeInBytes).product,
-      rowCount =
-        Some(p.children.filter(_.stats.rowCount.nonEmpty).map(_.stats.rowCount.get).product))
+      rowCount = Some(p.children.map(_.stats.rowCount.getOrElse(BigInt(1))).product))
   }
 
   override def visitFilterExec(p: FilterExec): Statistics = visitUnaryExecNode(p)

@@ -78,6 +78,6 @@ case class LocalTableScanExec(
   override def computeStats(): Statistics = {
     val rowSize = 8 + output.map(_.dataType.defaultSize).sum
     val rowCount = rows.size
-    Statistics(sizeInBytes = rowSize * rowCount, rowCount = Some(rowCount))
+    Statistics(rowSize * rowCount, rowCount = Some(rowCount))
   }
 }
