@@ -83,7 +83,7 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
         Statistics(sizeInBytes = sizeInBytes,
           rowCount = Some(record),
           bytesByPartitionId = Some(bytesByPartitionId),
-          recordStatistics = Some(RecordStatistics(record, recordsByPartitionId)))
+          recordsByPartitionId = Some(recordsByPartitionId))
       } else {
         Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
       }
@@ -121,7 +121,7 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
         Statistics(sizeInBytes = sizeInBytes,
           rowCount = Some(record),
           bytesByPartitionId = Some(bytesByPartitionId),
-          recordStatistics = Some(RecordStatistics(record, recordsByPartitionId)))
+          recordsByPartitionId = Some(recordsByPartitionId))
       } else {
         Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
       }
