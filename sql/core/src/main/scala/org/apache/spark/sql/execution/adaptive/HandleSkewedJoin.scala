@@ -51,14 +51,14 @@ case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
       medianSize: Long,
       medianRowCount: Long): Boolean = {
     isSizeSkewed(stats.bytesByPartitionId(partitionId), medianSize) ||
-      isRowCountSkewed(stats.recordsByPartitionId(partitionId), medianRowCount)
+      isRowCountSkewed(stats.rowCountsByPartitionId(partitionId), medianRowCount)
   }
 
   private def medianSizeAndRowCount(stats: PartitionStatistics): (Long, Long) = {
     val bytesLen = stats.bytesByPartitionId.length
-    val rowCountsLen = stats.recordsByPartitionId.length
+    val rowCountsLen = stats.rowCountsByPartitionId.length
     val bytes = stats.bytesByPartitionId.sorted
-    val rowCounts = stats.recordsByPartitionId.sorted
+    val rowCounts = stats.rowCountsByPartitionId.sorted
     val medSize = if (bytes(bytesLen / 2) > 0) bytes(bytesLen / 2) else 1
     val medRowCount = if (rowCounts(rowCountsLen / 2) > 0) rowCounts(rowCountsLen / 2) else 1
     (medSize, medRowCount)
@@ -89,7 +89,7 @@ case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
       medianRowCount: Long): Array[Int] = {
     val stats = queryStageInput.childStage.stats
     val size = stats.bytesByPartitionId.get(partitionId)
-    val rowCount = stats.recordsByPartitionId.get(partitionId)
+    val rowCount = stats.rowCountsStatistics.get.rowCountsByPartitionId(partitionId)
     val factor = Math.max(size / medianSize, rowCount / medianRowCount)
     val numSplits = Math.min(conf.adaptiveSkewedMaxSplits,
       Math.min(factor.toInt, queryStageInput.numMapper))
@@ -122,9 +122,9 @@ case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
         s" right medSize/rowCounts ($rightMedSize, $rightMedRowCount)")
 
       logInfo(s"left bytes Max : ${leftStats.bytesByPartitionId.max}")
-      logInfo(s"left row counts Max : ${leftStats.recordsByPartitionId.max}")
+      logInfo(s"left row counts Max : ${leftStats.rowCountsByPartitionId.max}")
       logInfo(s"right bytes Max : ${rightStats.bytesByPartitionId.max}")
-      logInfo(s"right row counts Max : ${rightStats.recordsByPartitionId.max}")
+      logInfo(s"right row counts Max : ${rightStats.rowCountsByPartitionId.max}")
 
       val skewedPartitions = mutable.HashSet[Int]()
       val subJoins = mutable.ArrayBuffer[SparkPlan](smj)

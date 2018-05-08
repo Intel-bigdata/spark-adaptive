@@ -43,11 +43,20 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
     Statistics(sizeInBytes = sizeInBytes)
   }
 
+  private def getSizeInBytes(sizeInBytes: BigInt, rowCount: BigInt, plan: SparkPlan): BigInt = {
+    val sizePerRow = plan.output.map(_.dataType.defaultSize).sum + 8
+    val estimatedSizeInBytes = sizePerRow * rowCount
+    if (plan.sqlContext.sparkContext.conf.getBoolean("spark.shuffle.compress", true)
+      && sizeInBytes * 20 <= estimatedSizeInBytes) {
+      estimatedSizeInBytes
+    } else {
+      sizeInBytes
+    }
+  }
+
   override def default(p: SparkPlan): Statistics = p match {
     case p: LeafExecNode => p.computeStats()
-    case _: SparkPlan => Statistics(
-      sizeInBytes = p.children.map(_.stats.sizeInBytes).product,
-      rowCount = Some(p.children.map(_.stats.rowCount.getOrElse(BigInt(1))).product))
+    case _: SparkPlan => Statistics(sizeInBytes = p.children.map(_.stats.sizeInBytes).product)
   }
 
   override def visitFilterExec(p: FilterExec): Statistics = visitUnaryExecNode(p)
@@ -77,13 +86,12 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
     if (p.mapOutputStatistics != null) {
       val sizeInBytes = p.mapOutputStatistics.bytesByPartitionId.sum
       val bytesByPartitionId = p.mapOutputStatistics.bytesByPartitionId
-      if (p.mapOutputStatistics.recordsByPartitionId.nonEmpty) {
-        val record = p.mapOutputStatistics.recordsByPartitionId.sum
-        val recordsByPartitionId = p.mapOutputStatistics.recordsByPartitionId
-        Statistics(sizeInBytes = sizeInBytes,
-          rowCount = Some(record),
+      if (p.mapOutputStatistics.rowCountsByPartitionId.nonEmpty) {
+        val rowCountsByPartitionId = p.mapOutputStatistics.rowCountsByPartitionId
+        val rowCount = rowCountsByPartitionId.sum
+        Statistics(sizeInBytes = getSizeInBytes(sizeInBytes, rowCount, p),
           bytesByPartitionId = Some(bytesByPartitionId),
-          recordsByPartitionId = Some(recordsByPartitionId))
+          rowCountsStatistics = Some(RowCountsStatistics(rowCount, rowCountsByPartitionId)))
       } else {
         Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
       }
@@ -115,13 +123,12 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
     if (p.mapOutputStatistics != null) {
       val sizeInBytes = p.mapOutputStatistics.bytesByPartitionId.sum
       val bytesByPartitionId = p.mapOutputStatistics.bytesByPartitionId
-      if (p.mapOutputStatistics.recordsByPartitionId.nonEmpty) {
-        val record = p.mapOutputStatistics.recordsByPartitionId.sum
-        val recordsByPartitionId = p.mapOutputStatistics.recordsByPartitionId
-        Statistics(sizeInBytes = sizeInBytes,
-          rowCount = Some(record),
+      if (p.mapOutputStatistics.rowCountsByPartitionId.nonEmpty) {
+        val rowCountsByPartitionId = p.mapOutputStatistics.rowCountsByPartitionId
+        val rowCount = rowCountsByPartitionId.sum
+        Statistics(sizeInBytes = getSizeInBytes(sizeInBytes, rowCount, p),
           bytesByPartitionId = Some(bytesByPartitionId),
-          recordsByPartitionId = Some(recordsByPartitionId))
+          rowCountsStatistics = Some(RowCountsStatistics(rowCount, rowCountsByPartitionId)))
       } else {
         Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
       }

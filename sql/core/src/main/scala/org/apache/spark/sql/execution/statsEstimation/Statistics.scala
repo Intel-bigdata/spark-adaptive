@@ -41,22 +41,26 @@ import org.apache.spark.util.Utils
 
 case class PartitionStatistics(
     bytesByPartitionId: Array[Long],
-    recordsByPartitionId: Array[Long])
+    rowCountsByPartitionId: Array[Long])
+
+case class RowCountsStatistics(
+    rowCount: BigInt,
+    rowCountsByPartitionId: Array[Long])
 
 case class Statistics(
     sizeInBytes: BigInt,
-    rowCount: Option[BigInt] = None,
     bytesByPartitionId: Option[Array[Long]] = None,
-    recordsByPartitionId: Option[Array[Long]] = None) {
+    rowCountsStatistics: Option[RowCountsStatistics] = None) {
 
   override def toString: String = "Statistics(" + simpleString + ")"
 
   /** Readable string representation for the Statistics. */
   def simpleString: String = {
     Seq(s"sizeInBytes=${Utils.bytesToString(sizeInBytes)}",
-      if (rowCount.isDefined) {
+      if (rowCountsStatistics.isDefined) {
         // Show row count in scientific notation.
-        s"record=${BigDecimal(rowCount.get, new MathContext(3, RoundingMode.HALF_UP)).toString()}"
+        s"record=${BigDecimal(rowCountsStatistics.get.rowCount,
+          new MathContext(3, RoundingMode.HALF_UP)).toString()}"
       } else {
         ""
       }
@@ -64,8 +68,9 @@ case class Statistics(
   }
 
   def getPartitionStatistics : Option[PartitionStatistics] = {
-    if (bytesByPartitionId.isDefined && recordsByPartitionId.isDefined) {
-      Some(PartitionStatistics(bytesByPartitionId.get, recordsByPartitionId.get))
+    if (bytesByPartitionId.isDefined && rowCountsStatistics.isDefined) {
+      Some(PartitionStatistics(bytesByPartitionId.get,
+        rowCountsStatistics.get.rowCountsByPartitionId))
     } else {
       None
     }

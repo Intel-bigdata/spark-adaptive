@@ -216,6 +216,6 @@ case class HiveTableScanExec(
 
   override def computeStats(): Statistics = {
     val stats = relation.computeStats()
-    Statistics(sizeInBytes = stats.sizeInBytes, rowCount = stats.rowCount)
+    Statistics(stats.sizeInBytes)
   }
 }
