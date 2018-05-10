@@ -21,6 +21,9 @@ import java.math.{MathContext, RoundingMode}
 
 import org.apache.spark.util.Utils
 
+case class PartitionStatistics(
+    bytesByPartitionId: Array[Long],
+    rowCountsByPartitionId: Array[Long])
 
 /**
  * Estimates of various statistics.  The default estimation logic simply lazily multiplies the
@@ -38,28 +41,20 @@ import org.apache.spark.util.Utils
  *                    defaults to the product of children's `sizeInBytes`.
  * @param rowCount Estimated number of rows.
  */
-
-case class PartitionStatistics(
-    bytesByPartitionId: Array[Long],
-    rowCountsByPartitionId: Array[Long])
-
-case class RowCountsStatistics(
-    rowCount: BigInt,
-    rowCountsByPartitionId: Array[Long])
-
 case class Statistics(
     sizeInBytes: BigInt,
+    rowCount: Option[BigInt] = None,
     bytesByPartitionId: Option[Array[Long]] = None,
-    rowCountsStatistics: Option[RowCountsStatistics] = None) {
+    rowCountsByPartitionId: Option[Array[Long]] = None) {
 
   override def toString: String = "Statistics(" + simpleString + ")"
 
   /** Readable string representation for the Statistics. */
   def simpleString: String = {
     Seq(s"sizeInBytes=${Utils.bytesToString(sizeInBytes)}",
-      if (rowCountsStatistics.isDefined) {
+      if (rowCount.isDefined) {
         // Show row count in scientific notation.
-        s"record=${BigDecimal(rowCountsStatistics.get.rowCount,
+        s"rowCount=${BigDecimal(rowCount.get,
           new MathContext(3, RoundingMode.HALF_UP)).toString()}"
       } else {
         ""
@@ -68,9 +63,8 @@ case class Statistics(
   }
 
   def getPartitionStatistics : Option[PartitionStatistics] = {
-    if (bytesByPartitionId.isDefined && rowCountsStatistics.isDefined) {
-      Some(PartitionStatistics(bytesByPartitionId.get,
-        rowCountsStatistics.get.rowCountsByPartitionId))
+    if (bytesByPartitionId.isDefined && rowCountsByPartitionId.isDefined) {
+      Some(PartitionStatistics(bytesByPartitionId.get, rowCountsByPartitionId.get))
     } else {
       None
     }

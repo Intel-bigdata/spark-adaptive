@@ -89,7 +89,7 @@ case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
       medianRowCount: Long): Array[Int] = {
     val stats = queryStageInput.childStage.stats
     val size = stats.bytesByPartitionId.get(partitionId)
-    val rowCount = stats.rowCountsStatistics.get.rowCountsByPartitionId(partitionId)
+    val rowCount = stats.rowCountsByPartitionId.get(partitionId)
     val factor = Math.max(size / medianSize, rowCount / medianRowCount)
     val numSplits = Math.min(conf.adaptiveSkewedMaxSplits,
       Math.min(factor.toInt, queryStageInput.numMapper))
