@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution.statsEstimation
 
 import org.apache.spark.sql.catalyst.plans.{LeftAnti, LeftSemi}
 import org.apache.spark.sql.execution._
+import org.apache.spark.sql.execution.adaptive.ShuffleQueryStage
 import org.apache.spark.sql.execution.aggregate._
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.{HashJoin, SortMergeJoinExec}
@@ -96,6 +97,16 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
         p.left.stats
       case _ =>
         default(p)
+    }
+  }
+
+  override def visitShuffleQueryStage(p: ShuffleQueryStage): Statistics = {
+    if (p.mapOutputStatistics != null) {
+      val sizeInBytes = p.mapOutputStatistics.bytesByPartitionId.sum
+      val bytesByPartitionId = p.mapOutputStatistics.bytesByPartitionId
+      Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
+    } else {
+      visitUnaryExecNode(p)
     }
   }
 }

@@ -93,11 +93,18 @@ abstract class QueryStage extends UnaryExecNode {
   def prepareExecuteStage(): Unit = {
     // 1. Execute childStages
     executeChildStages()
+
     // It is possible to optimize this stage's plan here based on the child stages' statistics.
+    val oldChild = child
+    OptimizeJoin(conf).apply(this)
+    // If the Joins are changed, we need apply EnsureRequirements rule to add BroadcastExchange.
+    if (!oldChild.fastEquals(child)) {
+      child = EnsureRequirements(conf).apply(child)
+    }
 
     // 2. Determine reducer number
     val queryStageInputs: Seq[ShuffleQueryStageInput] = child.collect {
-      case input: ShuffleQueryStageInput => input
+      case input: ShuffleQueryStageInput if !input.isLocalShuffle => input
     }
     val childMapOutputStatistics = queryStageInputs.map(_.childStage.mapOutputStatistics)
       .filter(_ != null).toArray
@@ -109,8 +116,8 @@ abstract class QueryStage extends UnaryExecNode {
       val partitionStartIndices =
         exchangeCoordinator.estimatePartitionStartIndices(childMapOutputStatistics)
       child = child.transform {
-        case ShuffleQueryStageInput(childStage, output, _) =>
-          ShuffleQueryStageInput(childStage, output, Some(partitionStartIndices))
+        case ShuffleQueryStageInput(childStage, output, isLocalShuffle, _, _) =>
+          ShuffleQueryStageInput(childStage, output, isLocalShuffle, Some(partitionStartIndices))
       }
     }
 

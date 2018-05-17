@@ -80,7 +80,9 @@ abstract class QueryStageInput extends LeafExecNode {
 case class ShuffleQueryStageInput(
     childStage: ShuffleQueryStage,
     override val output: Seq[Attribute],
-    partitionStartIndices: Option[Array[Int]] = None)
+    var isLocalShuffle: Boolean = false,
+    var partitionStartIndices: Option[Array[Int]] = None,
+    var partitionEndIndices: Option[Array[Int]] = None)
   extends QueryStageInput {
 
   override def outputPartitioning: Partitioning = partitionStartIndices.map {
@@ -89,7 +91,11 @@ case class ShuffleQueryStageInput(
 
   override def doExecute(): RDD[InternalRow] = {
     val childRDD = childStage.execute().asInstanceOf[ShuffledRowRDD]
-    new ShuffledRowRDD(childRDD.dependency, partitionStartIndices)
+    if (isLocalShuffle) {
+      new LocalShuffledRowRDD(childRDD.dependency, partitionStartIndices, partitionEndIndices)
+    } else {
+      new ShuffledRowRDD(childRDD.dependency, partitionStartIndices, partitionEndIndices)
+    }
   }
 }
 

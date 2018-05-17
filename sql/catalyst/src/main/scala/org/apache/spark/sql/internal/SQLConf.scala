@@ -225,6 +225,26 @@ object SQLConf {
     .booleanConf
     .createWithDefault(false)
 
+  val ADAPTIVE_EXECUTION_JOIN_ENABLED = buildConf("spark.sql.adaptive.join.enabled")
+    .doc("When true and adaptive execution is enabled, a better join strategy is determined at " +
+      "runtime.")
+    .booleanConf
+    .createWithDefault(true)
+
+  val ADAPTIVE_BROADCASTJOIN_THRESHOLD = buildConf("spark.sql.adaptiveBroadcastJoinThreshold")
+    .doc("Configures the maximum size in bytes for a table that will be broadcast to all worker " +
+      "nodes when performing a join in adaptive exeuction mode. If not set, it equals to " +
+      "spark.sql.autoBroadcastJoinThreshold.")
+    .longConf
+    .createOptional
+
+  val ADAPTIVE_EXECUTION_ALLOW_ADDITIONAL_SHUFFLE =
+    buildConf("spark.sql.adaptive.allowAdditionalShuffle")
+      .doc("When true, additional shuffles are allowed during plan optimizations in adaptive " +
+        "execution")
+      .booleanConf
+      .createWithDefault(false)
+
   val SHUFFLE_MIN_NUM_POSTSHUFFLE_PARTITIONS =
     buildConf("spark.sql.adaptive.minNumPostShufflePartitions")
       .doc("The advisory minimum number of post-shuffle partitions used in adaptive execution.")
@@ -1275,6 +1295,13 @@ class SQLConf extends Serializable with Logging {
     getConf(SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE)
 
   def adaptiveExecutionEnabled: Boolean = getConf(ADAPTIVE_EXECUTION_ENABLED)
+
+  def adaptiveJoinEnabled: Boolean = getConf(ADAPTIVE_EXECUTION_JOIN_ENABLED)
+
+  def adaptiveBroadcastJoinThreshold: Long =
+    getConf(ADAPTIVE_BROADCASTJOIN_THRESHOLD).getOrElse(autoBroadcastJoinThreshold)
+
+  def adaptiveAllowAdditionShuffle: Boolean = getConf(ADAPTIVE_EXECUTION_ALLOW_ADDITIONAL_SHUFFLE)
 
   def minNumPostShufflePartitions: Int = getConf(SHUFFLE_MIN_NUM_POSTSHUFFLE_PARTITIONS)
 

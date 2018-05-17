@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.execution.adaptive.QueryStage
+import org.apache.spark.sql.execution.adaptive.ShuffleQueryStage
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.{HashJoin, SortMergeJoinExec}
@@ -35,6 +35,7 @@ trait SparkPlanVisitor[T] {
     case p: ShuffleExchangeExec => visitShuffleExchangeExec(p)
     case p: SortAggregateExec => visitSortAggregateExec(p)
     case p: SortMergeJoinExec => visitSortMergeJoinExec(p)
+    case p: ShuffleQueryStage => visitShuffleQueryStage(p)
     case p: SparkPlan => default(p)
   }
 
@@ -53,4 +54,6 @@ trait SparkPlanVisitor[T] {
   def visitSortAggregateExec(p: SortAggregateExec): T
 
   def visitSortMergeJoinExec(p: SortMergeJoinExec): T
+
+  def visitShuffleQueryStage(p: ShuffleQueryStage): T
 }
