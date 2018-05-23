@@ -534,4 +534,10 @@ package object config {
       .checkValue(v => v > 0, "The threshold should be positive.")
       .createWithDefault(10000000)
 
+  private[spark] val SHUFFLE_HIGHLY_COMPRESSED_MAP_STATUS_THRESHOLD =
+    ConfigBuilder("spark.shuffle.highlyCompressedMapStatusThreshold")
+    .doc("HighlyCompressedMapStatus is used if shuffle partition number is larger than the " +
+      "threshold. Otherwise CompressedMapStatus is used.")
+    .intConf
+    .createWithDefault(2000)
 }

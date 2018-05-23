@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.execution.adaptive
 
+import scala.collection.mutable
+
 import org.apache.spark.broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -81,6 +83,7 @@ case class ShuffleQueryStageInput(
     childStage: ShuffleQueryStage,
     override val output: Seq[Attribute],
     var isLocalShuffle: Boolean = false,
+    var skewedPartitions: Option[mutable.HashSet[Int]] = None,
     var partitionStartIndices: Option[Array[Int]] = None,
     var partitionEndIndices: Option[Array[Int]] = None)
   extends QueryStageInput {
@@ -96,6 +99,33 @@ case class ShuffleQueryStageInput(
     } else {
       new ShuffledRowRDD(childRDD.dependency, partitionStartIndices, partitionEndIndices)
     }
+  }
+
+  def numMapper(): Int = {
+    val childRDD = childStage.execute().asInstanceOf[ShuffledRowRDD]
+    childRDD.dependency.rdd.partitions.length
+  }
+}
+
+/**
+ * A QueryStageInput that reads part of a single partition.The partition is divided into several
+ * splits and it only reads one of the splits ranging from startMapId to endMapId (exclusive).
+ */
+case class SkewedShuffleQueryStageInput(
+    childStage: ShuffleQueryStage,
+    override val output: Seq[Attribute],
+    partitionId: Int,
+    startMapId: Int,
+    endMapId: Int)
+  extends QueryStageInput {
+
+  override def doExecute(): RDD[InternalRow] = {
+    val childRDD = childStage.execute ().asInstanceOf[ShuffledRowRDD]
+    new AdaptiveShuffledRowRDD(
+      childRDD.dependency,
+      partitionId,
+      Some(Array(startMapId)),
+      Some(Array(endMapId)))
   }
 }
 

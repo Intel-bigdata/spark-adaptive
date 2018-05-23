@@ -60,9 +60,12 @@ private[spark] object MapStatus {
     val verbose = Option(SparkEnv.get)
       .map(_.conf.get(config.SHUFFLE_STATISTICS_VERBOSE))
       .getOrElse(config.SHUFFLE_STATISTICS_VERBOSE.defaultValue.get)
-    val newRecords = if (verbose) uncompressedRecords else Array[Long]()
+    val threshold = Option(SparkEnv.get)
+      .map(_.conf.get(config.SHUFFLE_HIGHLY_COMPRESSED_MAP_STATUS_THRESHOLD))
+      .getOrElse(config.SHUFFLE_HIGHLY_COMPRESSED_MAP_STATUS_THRESHOLD.defaultValue.get)
 
-    if (uncompressedSizes.length > 2000) {
+    val newRecords = if (verbose) uncompressedRecords else Array[Long]()
+    if (uncompressedSizes.length > threshold) {
       HighlyCompressedMapStatus(loc, uncompressedSizes, newRecords)
     } else {
       new CompressedMapStatus(loc, uncompressedSizes, newRecords)
