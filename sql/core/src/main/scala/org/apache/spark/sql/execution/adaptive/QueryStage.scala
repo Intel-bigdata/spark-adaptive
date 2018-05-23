@@ -97,7 +97,6 @@ abstract class QueryStage extends UnaryExecNode {
     // It is possible to optimize this stage's plan here based on the child stages' statistics.
     val oldChild = child
     OptimizeJoin(conf).apply(this)
-    HandleSkewedJoin(conf).apply(this)
     // If the Joins are changed, we need apply EnsureRequirements rule to add BroadcastExchange.
     if (!oldChild.fastEquals(child)) {
       child = EnsureRequirements(conf).apply(child)
@@ -107,28 +106,32 @@ abstract class QueryStage extends UnaryExecNode {
     val queryStageInputs: Seq[ShuffleQueryStageInput] = child.collect {
       case input: ShuffleQueryStageInput if !input.isLocalShuffle => input
     }
-    val childMapOutputStatistics = queryStageInputs.map(_.childStage.mapOutputStatistics)
-      .filter(_ != null).toArray
-    if (childMapOutputStatistics.length > 0) {
-      val exchangeCoordinator = new ExchangeCoordinator(
-        conf.targetPostShuffleInputSize,
-        conf.adaptiveTargetPostShuffleRowCount,
-        conf.minNumPostShufflePartitions)
+    val numOfLeafNodes = child.collect{case n: LeafExecNode => n}.length
+    if (queryStageInputs.length == numOfLeafNodes) {
+      HandleSkewedJoin(conf).apply(this)
+      val childMapOutputStatistics = queryStageInputs.map(_.childStage.mapOutputStatistics)
+        .filter(_ != null).toArray
+      if (childMapOutputStatistics.length > 0) {
+        val exchangeCoordinator = new ExchangeCoordinator(
+          conf.targetPostShuffleInputSize,
+          conf.adaptiveTargetPostShuffleRowCount,
+          conf.minNumPostShufflePartitions)
 
-      if (queryStageInputs.length == 2 && queryStageInputs.forall(_.skewedPartitions.isDefined)) {
-        // If a skewed join is detected and optimized, we will omit the skewed partitions when
-        // estimate the partition start and end indices.
-        val (partitionStartIndices, partitionEndIndices) =
+        if (queryStageInputs.length == 2 && queryStageInputs.forall(_.skewedPartitions.isDefined)) {
+          // If a skewed join is detected and optimized, we will omit the skewed partitions when
+          // estimate the partition start and end indices.
+          val (partitionStartIndices, partitionEndIndices) =
           exchangeCoordinator.estimatePartitionStartEndIndices(
             childMapOutputStatistics, queryStageInputs(0).skewedPartitions.get)
-        queryStageInputs.foreach { i =>
-          i.partitionStartIndices = Some(partitionStartIndices)
-          i.partitionEndIndices = Some(partitionEndIndices)
+          queryStageInputs.foreach { i =>
+            i.partitionStartIndices = Some(partitionStartIndices)
+            i.partitionEndIndices = Some(partitionEndIndices)
+          }
+        } else {
+          val partitionStartIndices =
+            exchangeCoordinator.estimatePartitionStartIndices(childMapOutputStatistics)
+          queryStageInputs.foreach(_.partitionStartIndices = Some(partitionStartIndices))
         }
-      } else {
-        val partitionStartIndices =
-          exchangeCoordinator.estimatePartitionStartIndices(childMapOutputStatistics)
-        queryStageInputs.foreach(_.partitionStartIndices = Some(partitionStartIndices))
       }
     }
 
