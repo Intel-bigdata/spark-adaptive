@@ -45,8 +45,8 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
         if plan.sqlContext.sparkContext.conf.getBoolean("spark.shuffle.compress", true) =>
         val sizeInBytes = plan.stats.sizeInBytes
         val sizePerRow = plan.output.map(_.dataType.defaultSize).sum + 8
-        val estimatedSizeInBytes = sizePerRow * rowCount
-        if (sizeInBytes * 20 <= estimatedSizeInBytes) estimatedSizeInBytes else sizeInBytes
+        val estimatedSizeInMemory = sizePerRow * rowCount
+        if (sizeInBytes * 30 <= estimatedSizeInMemory) estimatedSizeInMemory / 3 else sizeInBytes
       case _ =>
         plan.stats.sizeInBytes
     }
