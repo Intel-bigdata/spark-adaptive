@@ -40,7 +40,17 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
   }
 
   private def canBroadcast(plan: SparkPlan): Boolean = {
-    plan.stats.sizeInBytes >= 0 && plan.stats.sizeInBytes <= conf.adaptiveBroadcastJoinThreshold
+    val sizeInBytes = plan.stats.rowCount match {
+      case Some(rowCount)
+        if plan.sqlContext.sparkContext.conf.getBoolean("spark.shuffle.compress", true) =>
+        val sizeInBytes = plan.stats.sizeInBytes
+        val sizePerRow = plan.output.map(_.dataType.defaultSize).sum + 8
+        val estimatedSizeInMemory = sizePerRow * rowCount
+        if (sizeInBytes * 30 <= estimatedSizeInMemory) estimatedSizeInMemory / 3 else sizeInBytes
+      case _ =>
+        plan.stats.sizeInBytes
+    }
+    sizeInBytes >= 0 && sizeInBytes <= conf.adaptiveBroadcastJoinThreshold
   }
 
   private def removeSort(plan: SparkPlan): SparkPlan = {
