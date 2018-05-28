@@ -99,7 +99,7 @@ class ExchangeCoordinator(
 
     logInfo(
       s"advisoryTargetPostShuffleInputSize: $advisoryTargetPostShuffleInputSize, " +
-      s"targetPostShuffleInputSize $targetPostShuffleInputSize. ")
+      s"targetPostShuffleInputSize $targetPostShuffleInputSize.")
 
     // Make sure we do get the same number of pre-shuffle partitions for those stages.
     val distinctNumPreShufflePartitions =

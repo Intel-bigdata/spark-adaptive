@@ -73,6 +73,42 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
     }
   }
 
+  def checkJoin(join: DataFrame, spark: SparkSession): Unit = {
+    // Before Execution, there is one SortMergeJoin
+    val smjBeforeExecution = join.queryExecution.executedPlan.collect {
+      case smj: SortMergeJoinExec => smj
+    }
+    assert(smjBeforeExecution.length === 1)
+
+    // Check the answer.
+    val expectedAnswer =
+      spark
+        .range(0, 1000)
+        .selectExpr("id % 500 as key", "id as value")
+        .union(spark.range(0, 1000).selectExpr("id % 500 as key", "id as value"))
+    checkAnswer(
+      join,
+      expectedAnswer.collect())
+
+    // During execution, the SortMergeJoin is changed to BroadcastHashJoinExec
+    val smjAfterExecution = join.queryExecution.executedPlan.collect {
+      case smj: SortMergeJoinExec => smj
+    }
+    assert(smjAfterExecution.length === 0)
+
+    val numBhjAfterExecution = join.queryExecution.executedPlan.collect {
+      case smj: BroadcastHashJoinExec => smj
+    }.length
+    assert(numBhjAfterExecution === 1)
+
+    // Both shuffle should be local shuffle
+    val queryStageInputs = join.queryExecution.executedPlan.collect {
+      case q: ShuffleQueryStageInput => q
+    }
+    assert(queryStageInputs.length === 2)
+    assert(queryStageInputs.forall(_.isLocalShuffle) === true)
+  }
+
   test("1 sort merge join to broadcast join") {
     withSparkSession(defaultSparkSession) { spark: SparkSession =>
       val df1 =
@@ -84,39 +120,12 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
           .range(0, 1000, 1, numInputPartitions)
           .selectExpr("id % 500 as key2", "id as value2")
 
-      val join = df1.join(df2, col("key1") === col("key2")).select(col("key1"), col("value2"))
+      val innerJoin = df1.join(df2, col("key1") === col("key2")).select(col("key1"), col("value2"))
+      checkJoin(innerJoin, spark)
 
-      // Before Execution, there is one SortMergeJoin
-      val smjBeforeExecution = join.queryExecution.executedPlan.collect {
-        case smj: SortMergeJoinExec => smj
-      }
-      assert(smjBeforeExecution.length === 1)
-
-      // Check the answer.
-      val expectedAnswer =
-        spark
-          .range(0, 1000)
-          .selectExpr("id % 500 as key", "id as value")
-          .union(spark.range(0, 1000).selectExpr("id % 500 as key", "id as value"))
-      checkAnswer(
-        join,
-        expectedAnswer.collect())
-
-      // During execution, the SortMergeJoin is changed to BroadcastHashJoinExec
-      val smjAfterExecution = join.queryExecution.executedPlan.collect {
-        case smj: SortMergeJoinExec => smj
-      }
-      assert(smjAfterExecution.length === 0)
-
-      val numBhjAfterExecution = join.queryExecution.executedPlan.collect {
-        case smj: BroadcastHashJoinExec => smj
-      }.length
-      assert(numBhjAfterExecution === 1)
-
-      val queryStageInputs = join.queryExecution.executedPlan.collect {
-        case q: QueryStageInput => q
-      }
-      assert(queryStageInputs.length === 2)
+      val leftJoin =
+        df1.join(df2, col("key1") === col("key2"), "left").select(col("key1"), col("value1"))
+      checkJoin(leftJoin, spark)
     }
   }
 
