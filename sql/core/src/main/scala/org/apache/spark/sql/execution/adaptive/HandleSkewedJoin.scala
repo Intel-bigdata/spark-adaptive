@@ -21,7 +21,7 @@ import scala.collection.mutable
 
 import org.apache.spark.sql.catalyst.plans.{Cross, Inner, JoinType, LeftSemi}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{SortExec, SparkPlan, UnionExec}
+import org.apache.spark.sql.execution.{LeafExecNode, SortExec, SparkPlan, UnionExec}
 import org.apache.spark.sql.execution.joins.SortMergeJoinExec
 import org.apache.spark.sql.execution.statsEstimation.PartitionStatistics
 import org.apache.spark.sql.internal.SQLConf
@@ -190,7 +190,8 @@ case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
           val queryStageInputs: Seq[ShuffleQueryStageInput] = queryStage.collect {
             case input: ShuffleQueryStageInput => input
           }
-          if (queryStageInputs.length == 2) {
+          val numOfLeafNodes = queryStage.collect { case n: LeafExecNode => n }.length
+          if (queryStageInputs.length == 2 && queryStageInputs.length == numOfLeafNodes) {
             // Currently we only support handling skewed join for 2 table join.
             val optimizedPlan = handleSkewedJoin(queryStage.child, queryStage)
             queryStage.child = optimizedPlan
