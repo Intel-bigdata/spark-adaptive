@@ -286,6 +286,6 @@ case class InMemoryTableScanExec(
 
   override def computeStats(): Statistics = {
     val stats = relation.computeStats()
-    Statistics(stats.sizeInBytes)
+    Statistics(sizeInBytes = stats.sizeInBytes, rowCount = stats.rowCount)
   }
 }

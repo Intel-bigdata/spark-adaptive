@@ -75,12 +75,13 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
     if (p.mapOutputStatistics != null) {
       val sizeInBytes = p.mapOutputStatistics.bytesByPartitionId.sum
       val bytesByPartitionId = p.mapOutputStatistics.bytesByPartitionId
-      if (p.mapOutputStatistics.recordsByPartitionId.nonEmpty) {
-        val record = p.mapOutputStatistics.recordsByPartitionId.sum
-        val recordsByPartitionId = p.mapOutputStatistics.recordsByPartitionId
+      if (p.mapOutputStatistics.rowCountsByPartitionId.nonEmpty) {
+        val rowCount = p.mapOutputStatistics.rowCountsByPartitionId.sum
+        val rowCountsByPartitionId = p.mapOutputStatistics.rowCountsByPartitionId
         Statistics(sizeInBytes = sizeInBytes,
+          rowCount = Some(rowCount),
           bytesByPartitionId = Some(bytesByPartitionId),
-          recordStatistics = Some(RecordStatistics(record, recordsByPartitionId)))
+          rowCountsByPartitionId = Some(rowCountsByPartitionId))
       } else {
         Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
       }
@@ -112,12 +113,13 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
     if (p.mapOutputStatistics != null) {
       val sizeInBytes = p.mapOutputStatistics.bytesByPartitionId.sum
       val bytesByPartitionId = p.mapOutputStatistics.bytesByPartitionId
-      if (p.mapOutputStatistics.recordsByPartitionId.nonEmpty) {
-        val record = p.mapOutputStatistics.recordsByPartitionId.sum
-        val recordsByPartitionId = p.mapOutputStatistics.recordsByPartitionId
+      if (p.mapOutputStatistics.rowCountsByPartitionId.nonEmpty) {
+        val rowCount = p.mapOutputStatistics.rowCountsByPartitionId.sum
+        val rowCountsByPartitionId = p.mapOutputStatistics.rowCountsByPartitionId
         Statistics(sizeInBytes = sizeInBytes,
+          rowCount = Some(rowCount),
           bytesByPartitionId = Some(bytesByPartitionId),
-          recordStatistics = Some(RecordStatistics(record, recordsByPartitionId)))
+          rowCountsByPartitionId = Some(rowCountsByPartitionId))
       } else {
         Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
       }

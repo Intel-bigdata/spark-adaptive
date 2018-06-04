@@ -134,8 +134,8 @@ class ExchangeCoordinator(
       while (j < mapOutputStatistics.length) {
         val statistics = mapOutputStatistics(j)
         size += statistics.bytesByPartitionId(partitionId)
-        if (statistics.recordsByPartitionId.nonEmpty) {
-          rowCount += statistics.recordsByPartitionId(partitionId)
+        if (statistics.rowCountsByPartitionId.nonEmpty) {
+          rowCount += statistics.rowCountsByPartitionId(partitionId)
         }
         j += 1
       }
