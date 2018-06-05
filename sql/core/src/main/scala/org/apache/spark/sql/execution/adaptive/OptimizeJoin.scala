@@ -40,9 +40,9 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
   }
 
   private def canBroadcast(plan: SparkPlan): Boolean = {
+    val compressed = plan.sqlContext.sparkContext.conf.getBoolean("spark.shuffle.compress", true)
     val sizeInBytes = plan.stats.rowCount match {
-      case Some(rowCount)
-            if plan.sqlContext.sparkContext.conf.getBoolean("spark.shuffle.compress", true) =>
+      case Some(rowCount) if compressed =>
         val sizeInBytes = plan.stats.sizeInBytes
         val sizePerRow = plan.output.map(_.dataType.defaultSize).sum + 8
         val estimatedSizeInMemory = sizePerRow * rowCount
