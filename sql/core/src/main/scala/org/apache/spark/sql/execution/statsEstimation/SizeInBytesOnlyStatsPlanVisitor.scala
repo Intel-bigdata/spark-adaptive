@@ -75,7 +75,15 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
     if (p.mapOutputStatistics != null) {
       val sizeInBytes = p.mapOutputStatistics.bytesByPartitionId.sum
       val bytesByPartitionId = p.mapOutputStatistics.bytesByPartitionId
-      Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
+      if (p.mapOutputStatistics.recordsByPartitionId.nonEmpty) {
+        val record = p.mapOutputStatistics.recordsByPartitionId.sum
+        val recordsByPartitionId = p.mapOutputStatistics.recordsByPartitionId
+        Statistics(sizeInBytes = sizeInBytes,
+          bytesByPartitionId = Some(bytesByPartitionId),
+          recordStatistics = Some(RecordStatistics(record, recordsByPartitionId)))
+      } else {
+        Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
+      }
     } else {
       visitUnaryExecNode(p)
     }
@@ -104,7 +112,15 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
     if (p.mapOutputStatistics != null) {
       val sizeInBytes = p.mapOutputStatistics.bytesByPartitionId.sum
       val bytesByPartitionId = p.mapOutputStatistics.bytesByPartitionId
-      Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
+      if (p.mapOutputStatistics.recordsByPartitionId.nonEmpty) {
+        val record = p.mapOutputStatistics.recordsByPartitionId.sum
+        val recordsByPartitionId = p.mapOutputStatistics.recordsByPartitionId
+        Statistics(sizeInBytes = sizeInBytes,
+          bytesByPartitionId = Some(bytesByPartitionId),
+          recordStatistics = Some(RecordStatistics(record, recordsByPartitionId)))
+      } else {
+        Statistics(sizeInBytes = sizeInBytes, bytesByPartitionId = Some(bytesByPartitionId))
+      }
     } else {
       visitUnaryExecNode(p)
     }

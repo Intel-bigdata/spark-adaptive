@@ -26,11 +26,13 @@ import org.apache.spark.storage.TempShuffleBlockId;
  */
 final class SpillInfo {
   final long[] partitionLengths;
+  final long[] partitionRecords;
   final File file;
   final TempShuffleBlockId blockId;
 
   SpillInfo(int numPartitions, File file, TempShuffleBlockId blockId) {
     this.partitionLengths = new long[numPartitions];
+    this.partitionRecords = new long[numPartitions];
     this.file = file;
     this.blockId = blockId;
   }

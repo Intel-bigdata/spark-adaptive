@@ -108,9 +108,14 @@ class ExchangeCoordinator(
       // We calculate the total size of ith pre-shuffle partitions from all pre-shuffle stages.
       // Then, we add the total size to postShuffleInputSize.
       var nextShuffleInputSize = 0L
+      var rowCount = 0L
       var j = 0
       while (j < mapOutputStatistics.length) {
-        nextShuffleInputSize += mapOutputStatistics(j).bytesByPartitionId(i)
+        val statistics = mapOutputStatistics(j)
+        nextShuffleInputSize += statistics.bytesByPartitionId(i)
+        if (statistics.recordsByPartitionId.nonEmpty) {
+          rowCount += statistics.recordsByPartitionId(i)
+        }
         j += 1
       }
 

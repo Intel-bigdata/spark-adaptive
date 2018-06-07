@@ -52,6 +52,7 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
       .config("spark.ui.enabled", "false")
       .config("spark.driver.allowMultipleContexts", "true")
       .config(SQLConf.SHUFFLE_MAX_NUM_POSTSHUFFLE_PARTITIONS.key, "5")
+      .config(config.SHUFFLE_STATISTICS_VERBOSE.key, "true")
       .config(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "true")
       .config(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key, "-1")
       .config(SQLConf.ADAPTIVE_BROADCASTJOIN_THRESHOLD.key, "12000")
@@ -291,6 +292,79 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
       assert(queryStageInputs.length === 2)
 
       assert(queryStageInputs(0).childStage === queryStageInputs(1).childStage)
+    }
+  }
+
+  test("row count statistics, compressed") {
+    val spark = defaultSparkSession
+    withSparkSession(spark) { spark: SparkSession =>
+      spark.conf.set(SQLConf.SHUFFLE_PARTITIONS.key, "200")
+      spark.conf.set(SQLConf.SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE.key, "1")
+
+      val df1 =
+        spark
+          .range(0, 105, 1, 1)
+          .select(when(col("id") < 100, 1).otherwise(col("id")).as("id"))
+      val df2 = df1.repartition(col("id"))
+      assert(df2.collect().length == 105)
+
+      val siAfterExecution = df2.queryExecution.executedPlan.collect {
+        case si: ShuffleQueryStageInput => si
+      }
+      assert(siAfterExecution.length === 1)
+
+      // MapStatus uses log base 1.1 on records to compress,
+      // after decompressing, it becomes to 106
+      val stats = siAfterExecution.head.childStage.mapOutputStatistics
+      assert(stats.recordsByPartitionId.count(_ == 106) == 1)
+    }
+  }
+
+  test("row count statistics, highly compressed") {
+    val spark = defaultSparkSession
+    withSparkSession(spark) { spark: SparkSession =>
+      spark.sparkContext.conf.set(config.SHUFFLE_ACCURATE_BLOCK_RECORD_THRESHOLD.key, "20")
+      spark.conf.set(SQLConf.SHUFFLE_PARTITIONS.key, "2002")
+      spark.conf.set(SQLConf.SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE.key, "1")
+
+      val df1 =
+        spark
+          .range(0, 105, 1, 1)
+          .select(when(col("id") < 100, 1).otherwise(col("id")).as("id"))
+      val df2 = df1.repartition(col("id"))
+      assert(df2.collect().length == 105)
+
+      val siAfterExecution = df2.queryExecution.executedPlan.collect {
+        case si: ShuffleQueryStageInput => si
+      }
+      assert(siAfterExecution.length === 1)
+
+      // MapStatus uses log base 1.1 on records to compress,
+      // after decompressing, it becomes to 106
+      val stats = siAfterExecution.head.childStage.mapOutputStatistics
+      assert(stats.recordsByPartitionId.count(_ == 106) == 1)
+    }
+  }
+
+  test("row count statistics, verbose is false") {
+    val spark = defaultSparkSession
+    withSparkSession(spark) { spark: SparkSession =>
+      spark.sparkContext.conf.set(config.SHUFFLE_STATISTICS_VERBOSE.key, "false")
+
+      val df1 =
+        spark
+          .range(0, 105, 1, 1)
+          .select(when(col("id") < 100, 1).otherwise(col("id")).as("id"))
+      val df2 = df1.repartition(col("id"))
+      assert(df2.collect().length == 105)
+
+      val siAfterExecution = df2.queryExecution.executedPlan.collect {
+        case si: ShuffleQueryStageInput => si
+      }
+      assert(siAfterExecution.length === 1)
+
+      val stats = siAfterExecution.head.childStage.mapOutputStatistics
+      assert(stats.recordsByPartitionId.isEmpty)
     }
   }
 
