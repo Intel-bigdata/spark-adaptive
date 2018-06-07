@@ -183,7 +183,7 @@ abstract class QueryStage extends UnaryExecNode {
       verbose: Boolean,
       prefix: String = "",
       addSuffix: Boolean = false): StringBuilder = {
-    child.generateTreeString(depth, lastChildren, builder, verbose, "*")
+    child.generateTreeString(depth, lastChildren, builder, verbose)
   }
 }
 
