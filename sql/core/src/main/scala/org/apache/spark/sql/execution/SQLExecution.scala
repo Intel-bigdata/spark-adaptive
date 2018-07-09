@@ -99,4 +99,21 @@ object SQLExecution {
       sc.setLocalProperty(SQLExecution.EXECUTION_ID_KEY, oldExecutionId)
     }
   }
+
+  def withExecutionIdAndJobDesc[T](
+      sc: SparkContext,
+      executionId: String,
+      jobDesc: String)(body: => T): T = {
+    val oldExecutionId = sc.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
+    val oldJobDesc = sc.getLocalProperty(SparkContext.SPARK_JOB_DESCRIPTION)
+
+    try {
+      sc.setLocalProperty(SQLExecution.EXECUTION_ID_KEY, executionId)
+      sc.setLocalProperty(SparkContext.SPARK_JOB_DESCRIPTION, jobDesc)
+      body
+    } finally {
+      sc.setLocalProperty(SQLExecution.EXECUTION_ID_KEY, oldExecutionId)
+      sc.setLocalProperty(SparkContext.SPARK_JOB_DESCRIPTION, oldJobDesc)
+    }
+  }
 }
