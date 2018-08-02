@@ -102,7 +102,7 @@ case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
   /**
    * Base optimization support check: the join type is supported and plan statistics is available.
    * Note that for some join types(like left outer), whether a certain partition can be optimized
-   * also depends on [[supportOptimizationForThePartition]].
+   * also depends on the filed isSkewAndSupportsSplit.
    */
   private def supportOptimization(
       joinType: JoinType,
@@ -113,16 +113,8 @@ case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
       right.childStage.stats.getPartitionStatistics.isDefined
   }
 
-  private def supportOptimizationForThePartition(
-      joinType: JoinType,
-      isLeftSkew: Boolean,
-      isRightSkew: Boolean): Boolean = {
-    (isLeftSkew && supportSplitOnLeftPartition(joinType)) ||
-      (isRightSkew && supportSplitOnRightPartition(joinType))
-  }
-
   private def supportSplitOnLeftPartition(joinType: JoinType) = joinType != RightOuter
-  
+
   private def supportSplitOnRightPartition(joinType: JoinType) = {
     joinType != LeftOuter && joinType != LeftSemi
   }
@@ -153,8 +145,11 @@ case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
       for (partitionId <- 0 until numPartitions) {
         val isLeftSkew = isSkewed(leftStats, partitionId, leftMedSize, leftMedRowCount)
         val isRightSkew = isSkewed(rightStats, partitionId, rightMedSize, rightMedRowCount)
-        if ((isLeftSkew || isRightSkew) &&
-            supportOptimizationForThePartition(joinType, isLeftSkew, isRightSkew)) {
+        val isSkewAndSupportsSplit =
+          (isLeftSkew && supportSplitOnLeftPartition(joinType)) ||
+            (isRightSkew && supportSplitOnRightPartition(joinType))
+
+        if (isSkewAndSupportsSplit) {
           skewedPartitions += partitionId
           val leftMapIdStartIndices = if (isLeftSkew && supportSplitOnLeftPartition(joinType)) {
             estimateMapIdStartIndices(left, partitionId, leftMedSize, leftMedRowCount)
