@@ -29,7 +29,8 @@ import org.apache.spark.sql.internal.SQLConf
 
 case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
 
-  private val supportedJoinTypes = Inner :: Cross :: LeftSemi :: LeftOuter:: RightOuter :: Nil
+  private val supportedJoinTypes =
+    Inner :: Cross :: LeftSemi :: LeftAnti :: LeftOuter :: RightOuter :: Nil
 
   private def isSizeSkewed(size: Long, medianSize: Long): Boolean = {
     size > medianSize * conf.adaptiveSkewedFactor &&
@@ -116,7 +117,7 @@ case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
   private def supportSplitOnLeftPartition(joinType: JoinType) = joinType != RightOuter
 
   private def supportSplitOnRightPartition(joinType: JoinType) = {
-    joinType != LeftOuter && joinType != LeftSemi
+    joinType != LeftOuter && joinType != LeftSemi && joinType != LeftAnti
   }
 
   private def handleSkewedJoin(
