@@ -605,6 +605,18 @@ class PlannerSuite extends SharedSQLContext {
       requiredOrdering = Seq(orderingA, orderingB),
       shouldHaveSort = true)
   }
+
+  test("EnsureRequirements doesn't add shuffle between 2 successive full outer joins on the same " +
+    "key") {
+    val df1 = spark.range(1, 100).selectExpr("id as a1")
+    val df2 = spark.range(1, 100).selectExpr("id as b2")
+    val df3 = spark.range(1, 100).selectExpr("id as a3")
+    val fullOuterJoins = df1.join(df2, col("a1") === col("b2"), "full_outer")
+      .join(df3, col("a1") === col("a3"), "full_outer")
+    assert(
+      fullOuterJoins.queryExecution.executedPlan.collect { case e: ShuffleExchangeExec => e }
+        .length === 3)
+  }
 }
 
 // Used for unit-testing EnsureRequirements

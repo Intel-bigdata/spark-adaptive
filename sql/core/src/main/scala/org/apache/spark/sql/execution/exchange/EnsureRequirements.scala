@@ -23,8 +23,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, ShuffledHashJoinExec,
-  SortMergeJoinExec}
+import org.apache.spark.sql.execution.joins.{ShuffledHashJoinExec, SortMergeJoinExec}
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -138,13 +137,13 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
       rightPartitioning: Partitioning): (Seq[Expression], Seq[Expression]) = {
     if (leftKeys.forall(_.deterministic) && rightKeys.forall(_.deterministic)) {
       leftPartitioning match {
-        case HashPartitioning(leftExpressions, _)
+        case HashPartitioning(leftExpressions, _, _)
           if leftExpressions.length == leftKeys.length &&
             leftKeys.forall(x => leftExpressions.exists(_.semanticEquals(x))) =>
           reorder(leftKeys, rightKeys, leftExpressions, leftKeys)
 
         case _ => rightPartitioning match {
-          case HashPartitioning(rightExpressions, _)
+          case HashPartitioning(rightExpressions, _, _)
             if rightExpressions.length == rightKeys.length &&
               rightKeys.forall(x => rightExpressions.exists(_.semanticEquals(x))) =>
             reorder(leftKeys, rightKeys, rightExpressions, rightKeys)
