@@ -18,21 +18,21 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{execution, Row}
+import org.apache.spark.sql.{QueryTest, Row, execution}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.{Cross, FullOuter, Inner, LeftOuter, RightOuter}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Repartition}
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution.columnar.InMemoryRelation
-import org.apache.spark.sql.execution.exchange.{EnsureRequirements, ReusedExchangeExec, ReuseExchange, ShuffleExchangeExec}
+import org.apache.spark.sql.execution.exchange.{EnsureRequirements, ReuseExchange, ReusedExchangeExec, ShuffleExchangeExec}
 import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, SortMergeJoinExec}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.sql.types._
 
-class PlannerSuite extends SharedSQLContext {
+class PlannerSuite extends QueryTest with SharedSQLContext {
   import testImplicits._
 
   setupTestData()
@@ -608,14 +608,38 @@ class PlannerSuite extends SharedSQLContext {
 
   test("EnsureRequirements doesn't add shuffle between 2 successive full outer joins on the same " +
     "key") {
-    val df1 = spark.range(1, 100).selectExpr("id as a1")
-    val df2 = spark.range(1, 100).selectExpr("id as b2")
-    val df3 = spark.range(1, 100).selectExpr("id as a3")
-    val fullOuterJoins = df1.join(df2, col("a1") === col("b2"), "full_outer")
-      .join(df3, col("a1") === col("a3"), "full_outer")
+    val df1 = spark.range(1, 100, 1, 2).filter(_ % 2 == 0).selectExpr("id as a1")
+    val df2 = spark.range(1, 100, 1, 2).selectExpr("id as b2")
+    val df3 = spark.range(1, 100, 1, 2).selectExpr("id as a3")
+    val fullOuterJoins = df1
+      .join(df2, col("a1") === col("b2"), "full_outer")
+        .join(df3, col("a1") === col("a3"), "full_outer")
     assert(
       fullOuterJoins.queryExecution.executedPlan.collect { case e: ShuffleExchangeExec => e }
         .length === 3)
+    val expected = (1 until 100).filter(_ % 2 == 0).map(i => Row(i, i, i)) ++
+      (1 until 100).filterNot(_ % 2 == 0).map(Row(null, _, null)) ++
+        (1 until 100).filterNot(_ % 2 == 0).map(Row(null, null, _))
+    checkAnswer(fullOuterJoins, expected)
+  }
+
+  test("EnsureRequirements still adds shuffle for non-successive full outer joins on the same key")
+  {
+    withSQLConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "0") {
+      val df1 = spark.range(1, 100).selectExpr("id as a1")
+      val df2 = spark.range(1, 100).selectExpr("id as b2")
+      val df3 = spark.range(1, 100).selectExpr("id as a3")
+      val df4 = spark.range(1, 100).selectExpr("id as a4")
+
+      val fullOuterJoins = df1
+        .join(df2, col("a1") === col("b2"), "full_outer")
+          .join(df3, col("a1") === col("a3"), "left_outer")
+            .join(df4, col("a3") === col("a4"), "full_outer")
+      fullOuterJoins.explain(true)
+      assert(
+        fullOuterJoins.queryExecution.executedPlan.collect { case e: ShuffleExchangeExec => e }
+          .length === 5)
+    }
   }
 }
 

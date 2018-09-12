@@ -73,24 +73,24 @@ case class SortMergeJoinExec(
     case FullOuter =>
       // The output of Full Outer Join is similar to pure HashPartioning, except for NULL, which
       // is the only key not co-partitioned
-      val l = left.outputPartitioning match {
-        case h: HashPartitioning => h.copy(exceptNull = true)
-        case p: Partitioning => p
+      (left.outputPartitioning, right.outputPartitioning) match {
+        case (l: HashPartitioning, r: HashPartitioning) =>
+          PartitioningCollection(Seq(l.copy(exceptNull = true), r.copy(exceptNull = true)))
+        case _ => UnknownPartitioning(left.outputPartitioning.numPartitions)
       }
-      val r = right.outputPartitioning match {
-        case h: HashPartitioning => h.copy(exceptNull = true)
-        case p: Partitioning => p
-      }
-      PartitioningCollection(Seq(l, r))
     case LeftExistence(_) => left.outputPartitioning
     case x =>
       throw new IllegalArgumentException(
         s"${getClass.getSimpleName} should not take $x as the JoinType")
   }
 
-  override def requiredChildDistribution: Seq[Distribution] =
-    HashClusteredDistribution(leftKeys, exceptNull = true) ::
-      HashClusteredDistribution(rightKeys, exceptNull = true) :: Nil
+  override def requiredChildDistribution: Seq[Distribution] = joinType match {
+    case Inner | LeftOuter | RightOuter | FullOuter =>
+      HashClusteredDistribution(leftKeys, exceptNull = true) ::
+        HashClusteredDistribution(rightKeys, exceptNull = true) :: Nil
+    case _ => HashClusteredDistribution(leftKeys) :: HashClusteredDistribution(rightKeys) :: Nil
+  }
+
 
   override def outputOrdering: Seq[SortOrder] = joinType match {
     // For inner join, orders of both sides keys should be kept.
