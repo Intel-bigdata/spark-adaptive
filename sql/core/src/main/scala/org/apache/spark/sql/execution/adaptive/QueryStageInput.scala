@@ -69,7 +69,7 @@ abstract class QueryStageInput extends LeafExecNode {
       verbose: Boolean,
       prefix: String = "",
       addSuffix: Boolean = false): StringBuilder = {
-    childStage.generateTreeString(depth, lastChildren, builder, verbose, "*")
+    childStage.generateTreeString(depth, lastChildren, builder, verbose)
   }
 }
 
