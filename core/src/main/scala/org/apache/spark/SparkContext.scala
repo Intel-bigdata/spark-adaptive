@@ -2388,8 +2388,29 @@ class SparkContext(config: SparkConf) extends Logging {
       val schedulingMode = getSchedulingMode.toString
       val addedJarPaths = addedJars.keys.toSeq
       val addedFilePaths = addedFiles.keys.toSeq
+
+      val hadoopConfigurationSeq: Seq[(String, String)] =
+        if (conf.get(DISPLAY_HADOOPCONFIGURATION)) {
+          val prefix = conf.get(DISPLAY_HADOOPCONFIGURATION_PREFIX).getOrElse("")
+          val prefixCheck = prefix.length > 0
+          val iterator = hadoopConfiguration.iterator()
+          var configSeq = Seq[(String, String)]()
+
+          while (iterator.hasNext) {
+            val kvPair = iterator.next()
+            val key = kvPair.getKey
+            val value = kvPair.getValue
+            if (!prefixCheck || prefixCheck && key.startsWith(prefix)) {
+              configSeq = configSeq ++ Seq[(String, String)]((key, value))
+            }
+          }
+          configSeq
+        } else {
+           Seq.empty[(String, String)]
+        }
+
       val environmentDetails = SparkEnv.environmentDetails(conf, schedulingMode, addedJarPaths,
-        addedFilePaths)
+        addedFilePaths, hadoopConfigurationSeq)
       val environmentUpdate = SparkListenerEnvironmentUpdate(environmentDetails)
       listenerBus.post(environmentUpdate)
     }

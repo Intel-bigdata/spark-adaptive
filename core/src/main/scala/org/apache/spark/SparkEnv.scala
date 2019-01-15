@@ -409,7 +409,8 @@ object SparkEnv extends Logging {
       conf: SparkConf,
       schedulingMode: String,
       addedJars: Seq[String],
-      addedFiles: Seq[String]): Map[String, Seq[(String, String)]] = {
+      addedFiles: Seq[String],
+      hadoopProperties: Seq[(String, String)]): Map[String, Seq[(String, String)]] = {
 
     import Properties._
     val jvmInformation = Seq(
@@ -445,6 +446,7 @@ object SparkEnv extends Logging {
     Map[String, Seq[(String, String)]](
       "JVM Information" -> jvmInformation,
       "Spark Properties" -> sparkProperties,
+      "Hadoop Properties" -> hadoopProperties,
       "System Properties" -> otherProperties,
       "Classpath Entries" -> classPaths)
   }

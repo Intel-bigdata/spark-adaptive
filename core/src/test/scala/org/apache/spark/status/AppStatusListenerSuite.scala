@@ -95,6 +95,7 @@ class AppStatusListenerSuite extends SparkFunSuite with BeforeAndAfter {
       assert(info.runtime.scalaVersion == runtimeInfo("Scala Version"))
 
       assert(info.sparkProperties === details("Spark Properties"))
+      assert(info.hadoopProperties === details("Hadoop Properties"))
       assert(info.systemProperties === details("System Properties"))
       assert(info.classpathEntries === details("Classpath Entries"))
     }

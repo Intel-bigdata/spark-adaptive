@@ -540,4 +540,17 @@ package object config {
       "threshold. Otherwise CompressedMapStatus is used.")
     .intConf
     .createWithDefault(2000)
+
+  private[spark] val DISPLAY_HADOOPCONFIGURATION =
+    ConfigBuilder("spark.display.hadoopConfiguration")
+      .doc("")
+      .booleanConf
+      .createWithDefault(false)
+
+  private[spark] val DISPLAY_HADOOPCONFIGURATION_PREFIX =
+    ConfigBuilder("spark.display.hadoopConfiguration.prefix")
+      .doc("")
+      .stringConf
+      .createOptional
+
 }
