@@ -903,6 +903,10 @@
             <groupId>com.sun.jersey.contribs</groupId>
             <artifactId>*</artifactId>
           </exclusion>
+          <exclusion>
+            <groupId>com.esotericsoftware.kryo</groupId>
+            <artifactId>kryo</artifactId>
+          </exclusion>
         </exclusions>
       </dependency>
       <dependency>
@@ -1072,6 +1076,10 @@
           <exclusion>
             <groupId>com.sun.jersey.contribs</groupId>
             <artifactId>*</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>com.esotericsoftware.kryo</groupId>
+            <artifactId>kryo</artifactId>
           </exclusion>
         </exclusions>
       </dependency>
@@ -2668,6 +2676,33 @@
         <hadoop.version>2.7.3</hadoop.version>
         <curator.version>2.7.1</curator.version>
       </properties>
+    </profile>
+
+    <profile>
+      <id>hadoop-2.6.0-cdh5.5.1</id>
+      <properties>
+        <hadoop.version>2.6.0-cdh5.5.1</hadoop.version>
+        <curator.version>2.7.1</curator.version>
+
+      </properties>
+      <repositories>
+        <repository>
+          <id>cdh.releases.repo</id>
+          <url>https://repository.cloudera.com/content/groups/cdh-releases-rcs</url>
+          <name>CDH Releases Repository</name>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+        </repository>
+        <repository>
+          <id>cdh.snapshots.repo</id>
+          <url>https://repository.cloudera.com/content/repositories/snapshots</url>
+          <name>CDH Snapshots Repository</name>
+          <snapshots>
+            <enabled>true</enabled>
+          </snapshots>
+        </repository>
+      </repositories>
     </profile>
 
     <profile>
