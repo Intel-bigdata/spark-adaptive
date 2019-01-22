@@ -798,7 +798,8 @@ private[hive] class HiveClientImpl(
 
   override def getFunctionOption(
       db: String, name: String): Option[CatalogFunction] = withHiveState {
-    shim.getFunctionOption(client, db, name)
+    Option(shim.getFunctionOption(client, db, name)
+      .getOrElse(shim.getFunctionOption(client, SessionCatalog.DEFAULT_DATABASE, name).get))
   }
 
   override def listFunctions(db: String, pattern: String): Seq[String] = withHiveState {
