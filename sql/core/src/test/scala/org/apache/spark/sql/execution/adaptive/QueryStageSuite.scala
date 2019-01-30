@@ -331,6 +331,74 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
     }
   }
 
+  test("One of two sort merge leftSemi joins to broadcast join") {
+    // t1 is smaller than spark.sql.adaptiveBroadcastJoinThreshold
+    // t2 and t3 are greater than spark.sql.adaptiveBroadcastJoinThreshold
+    // Join1 changed to broadcast join.
+    //
+    //              Join2
+    //              /   \
+    //          Join1   Ex (Exchange)
+    //          /   \    \
+    //        Ex    Ex   t3
+    //       /       \
+    //      t1       t2
+    val spark = defaultSparkSession
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ALLOW_ADDITIONAL_SHUFFLE.key, "true")
+    withSparkSession(spark) { spark: SparkSession =>
+      val df1 =
+        spark
+          .range(0, 1000, 1, numInputPartitions)
+          .selectExpr("id % 500 as key1", "id as value1")
+      val df2 =
+        spark
+          .range(0, 1000, 1, numInputPartitions)
+          .selectExpr("id % 500 as key2", "id as value2")
+      val df3 =
+        spark
+          .range(0, 1500, 1, numInputPartitions)
+          .selectExpr("id % 500 as key3", "id as value3")
+
+      val join =
+        df1
+          .join(df2, col("key1") === col("key2"), "leftSemi")
+          .join(df3, col("key1") === col("key3"), "leftSemi")
+          .select(col("key1"), col("value1"))
+
+      // Before Execution, there is two SortMergeJoins
+      val smjBeforeExecution = join.queryExecution.executedPlan.collect {
+        case smj: SortMergeJoinExec => smj
+      }
+      assert(smjBeforeExecution.length === 2)
+
+      // Check the answer.
+      val expectedAnswer =
+        spark
+          .range(0, 1000)
+          .selectExpr("id % 500 as key", "id as value")
+      checkAnswer(
+        join,
+        expectedAnswer.collect())
+
+      // During execution, one SortMergeJoin is changed to BroadcastHashJoin
+      val smjAfterExecution = join.queryExecution.executedPlan.collect {
+        case smj: SortMergeJoinExec => smj
+      }
+      assert(smjAfterExecution.length === 1)
+
+      val numBhjAfterExecution = join.queryExecution.executedPlan.collect {
+        case bhj: BroadcastHashJoinExec => bhj
+      }.length
+      assert(numBhjAfterExecution === 1)
+
+      val queryStageInputs = join.queryExecution.executedPlan.collect {
+        case q: QueryStageInput => q
+      }
+      assert(queryStageInputs.length === 3)
+    }
+  }
+
+
   test("Reuse QueryStage in adaptive execution") {
     withSparkSession(defaultSparkSession) { spark: SparkSession =>
       val df = spark.range(0, 1000, 1, numInputPartitions).toDF()
