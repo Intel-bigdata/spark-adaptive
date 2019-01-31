@@ -88,11 +88,16 @@ case class ShuffleQueryStageInput(
     var partitionEndIndices: Option[Array[Int]] = None)
   extends QueryStageInput {
 
-  override def outputPartitioning: Partitioning = partitionStartIndices match {
-    case Some(indices) => UnknownPartitioning(partitionStartIndices.get.length)
-    case None if isLocalShuffle => UnknownPartitioning(1)
-    case _ => super.outputPartitioning
-  }
+  override def outputPartitioning: Partitioning =
+    if (isLocalShuffle) {
+      partitionStartIndices.map {
+        indices => UnknownPartitioning(indices.length)
+      }.getOrElse(UnknownPartitioning(1))
+    } else {
+      partitionStartIndices.map {
+        indices => UnknownPartitioning(indices.length)
+      }.getOrElse(super.outputPartitioning)
+    }
 
   override def doExecute(): RDD[InternalRow] = {
     val childRDD = childStage.execute().asInstanceOf[ShuffledRowRDD]
