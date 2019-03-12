@@ -22,6 +22,7 @@ import scala.util.control.NonFatal
 import com.google.common.util.concurrent.Striped
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.hive.common.StatsSetupConst
+
 import org.apache.spark.SparkException
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
@@ -156,12 +157,14 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
         val logicalRelation = cached.getOrElse {
           // for the partition table, the relation.stats.sizeInBytes is Long.max
           // not the real size in hdfs
-          val sizeInBytes = if (relation.isPartitioned && relation.stats.sizeInBytes.toLong == Long.MaxValue) {
+          val sizeInBytes =
+          if (relation.isPartitioned && relation.stats.sizeInBytes.toLong == Long.MaxValue) {
             sparkSession.sharedState.externalCatalog.listPartitions(tableIdentifier.database,
               tableIdentifier.name).map(_.parameters.get(StatsSetupConst.TOTAL_SIZE).get.toLong).sum
           } else {
             relation.stats.sizeInBytes.toLong
           }
+          
           val fileIndex = {
             val index = new CatalogFileIndex(sparkSession, relation.tableMeta, sizeInBytes)
             if (lazyPruningEnabled) {
