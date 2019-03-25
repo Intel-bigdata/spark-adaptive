@@ -49,7 +49,7 @@ case class SparkPlanGraph(
    */
   val allNodes: Seq[SparkPlanGraphNode] = {
     nodes.flatMap {
-      case cluster: SparkPlanGraphCluster => cluster.nodes :+ cluster
+      case cluster: SparkPlanGraphCluster => cluster.allNodes :+ cluster
       case node => Seq(node)
     }
   }
@@ -102,8 +102,19 @@ object SparkPlanGraph {
           val node = exchanges(planInfo.children.head)
           edges += SparkPlanGraphEdge(node.id, parent.id)
         } else {
+          val metrics = planInfo.metrics.map { metric =>
+            SQLPlanMetric(metric.name, metric.accumulatorId, metric.metricType)
+          }
+          val stageNodes = mutable.ArrayBuffer[SparkPlanGraphNode]()
+          val cluster = new SparkPlanGraphCluster(
+            nodeIdGenerator.getAndIncrement(),
+            planInfo.nodeName,
+            planInfo.simpleString,
+            stageNodes,
+            metrics)
+          nodes += cluster
           buildSparkPlanGraphNode(
-            planInfo.children.head, nodeIdGenerator, nodes, edges, parent, null, exchanges)
+            planInfo.children.head, nodeIdGenerator, stageNodes, edges, parent, cluster, exchanges)
         }
       case "QueryStageInput" | "ShuffleQueryStageInput" | "BroadcastQueryStageInput" =>
         buildSparkPlanGraphNode(
@@ -209,6 +220,16 @@ private[ui] class SparkPlanGraphCluster(
        |    ${nodes.map(_.makeDotNode(metricsValue)).mkString("    \n")}
        |  }
      """.stripMargin
+  }
+
+  /**
+   * All the SparkPlanGraphNodes, including those inside of WholeStageCodegen.
+   */
+  var allNodes: Seq[SparkPlanGraphNode] = {
+    nodes.flatMap {
+      case cluster: SparkPlanGraphCluster => cluster.allNodes :+ cluster
+      case node => Seq(node)
+    }
   }
 }
 
