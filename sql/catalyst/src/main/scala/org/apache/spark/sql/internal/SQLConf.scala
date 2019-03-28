@@ -238,6 +238,35 @@ object SQLConf {
     .longConf
     .createOptional
 
+  val ADAPTIVE_EXECUTION_HASHJOIN_ENABLED = buildConf("spark.sql.adaptive.hashJoin.enabled")
+    .doc("When true and adaptive execution is enabled, hash join strategy is determined at " +
+      "runtime.")
+    .booleanConf
+    .createWithDefault(false)
+
+  val ADAPTIVE_HASHJOIN_THRESHOLD = buildConf("spark.sql.adaptiveHashJoinThreshold")
+    .doc("Configures the maximum size in bytes for each shuffle partition that can use hash join " +
+      "when performing a join in adaptive exeuction mode. If not set, it equals to " +
+      "spark.sql.autoBroadcastJoinThreshold.")
+    .longConf
+    .createOptional
+
+  val ADAPTIVE_HASHJOIN_MAX_PARTITION_FACTOR = buildConf("spark.sql.adaptiveHashJoin.maxPartitionFactor")
+    .doc("One stage of sortMergeJoin if max partition size is less than this factor multiple spark.sql.adaptiveHashJoinThreshold " +
+      "and all partitions' size is less than spark.sql.adaptiveHashJoin.allPartitionFactor multiple " +
+      "spark.sql.adaptiveHashJoinThreshold * spark.sql.adaptive.maxNumPostShufflePartitions, " +
+      "then this sortMergeJoin can be optimized to shuffledHashJoin")
+    .doubleConf
+    .createWithDefault(4.0)
+
+  val ADAPTIVE_HASHJOIN_ALL_PARTITIONS_FACTOR = buildConf("spark.sql.adaptiveHashJoin.allPartitionFactor")
+    .doc("One stage of sortMergeJoin if all partitions' size is less than this factor multiple " +
+      "spark.sql.adaptiveHashJoinThreshold * spark.sql.adaptive.maxNumPostShufflePartitions" +
+      "and max partition size is less than spark.sql.adaptiveHashJoin.maxPartitionFactor multiple spark.sql.adaptiveHashJoinThreshold, " +
+      "then this sortMergeJoin can be optimized to shuffledHashJoin")
+    .doubleConf
+    .createWithDefault(0.5)
+
   val ADAPTIVE_EXECUTION_ALLOW_ADDITIONAL_SHUFFLE =
     buildConf("spark.sql.adaptive.allowAdditionalShuffle")
       .doc("When true, additional shuffles are allowed during plan optimizations in adaptive " +
@@ -1368,6 +1397,15 @@ class SQLConf extends Serializable with Logging {
 
   def adaptiveBroadcastJoinThreshold: Long =
     getConf(ADAPTIVE_BROADCASTJOIN_THRESHOLD).getOrElse(autoBroadcastJoinThreshold)
+
+  def adaptiveHashJoinEnabled: Boolean = getConf(ADAPTIVE_EXECUTION_HASHJOIN_ENABLED)
+
+  def adaptiveHashJoinThreshold: Long =
+    getConf(ADAPTIVE_HASHJOIN_THRESHOLD).getOrElse(autoBroadcastJoinThreshold)
+
+  def adaptiveHashJoinMaxPartitionFactor: Double = getConf(ADAPTIVE_HASHJOIN_MAX_PARTITION_FACTOR)
+
+  def adaptiveHashJoinAllPartitionsFactor: Double = getConf(ADAPTIVE_HASHJOIN_ALL_PARTITIONS_FACTOR)
 
   def adaptiveAllowAdditionShuffle: Boolean = getConf(ADAPTIVE_EXECUTION_ALLOW_ADDITIONAL_SHUFFLE)
 

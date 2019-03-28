@@ -153,9 +153,26 @@ abstract class QueryStage extends UnaryExecNode {
             i.partitionEndIndices = Some(partitionEndIndices)
           }
         } else {
-          val partitionStartIndices =
-            exchangeCoordinator.estimatePartitionStartIndices(childMapOutputStatistics)
-          queryStageInputs.foreach(_.partitionStartIndices = Some(partitionStartIndices))
+          if (queryStageInputs.length > 2) {
+            val numExchanges = child.collect {
+              case e: ShuffleExchangeExec => e
+            }.length
+            val topShuffleCheck = this match {
+              case _: ShuffleQueryStage => child.isInstanceOf[ShuffleExchangeExec]
+              case _ => true
+            }
+            val noAdditionalShuffle = (numExchanges == 0) ||
+              (this.isInstanceOf[ShuffleQueryStage] && numExchanges <=  1)
+            if (topShuffleCheck && noAdditionalShuffle) {
+              val partitionStartIndices =
+                exchangeCoordinator.estimatePartitionStartIndices(childMapOutputStatistics)
+              queryStageInputs.foreach(_.partitionStartIndices = Some(partitionStartIndices))
+            }
+          } else {
+            val partitionStartIndices =
+              exchangeCoordinator.estimatePartitionStartIndices(childMapOutputStatistics)
+            queryStageInputs.foreach(_.partitionStartIndices = Some(partitionStartIndices))
+          }
         }
       }
     }

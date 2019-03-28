@@ -22,7 +22,7 @@ import org.scalatest.BeforeAndAfterAll
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.internal.config
 import org.apache.spark.sql._
-import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, SortMergeJoinExec}
+import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, ShuffledHashJoinExec, SortMergeJoinExec}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
 
@@ -107,6 +107,35 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
     }
     assert(queryStageInputs.length === 2)
     assert(queryStageInputs.forall(_.isLocalShuffle) === true)
+  }
+
+  def checkHashJoin(join: DataFrame, spark: SparkSession): Unit = {
+    // Before Execution, there is one SortMergeJoin
+    val smjBeforeExecution = join.queryExecution.executedPlan.collect {
+      case smj: SortMergeJoinExec => smj
+    }
+    assert(smjBeforeExecution.length === 1)
+
+    // Check the answer.
+    val expectedAnswer =
+      spark
+        .range(0, 2000)
+        .selectExpr("id % 1000 as key", "id as value")
+        .union(spark.range(0, 2000).selectExpr("id % 1000 as key", "id as value"))
+    checkAnswer(
+      join,
+      expectedAnswer.collect())
+
+    // During execution, the SortMergeJoin is changed to ShuffledHashJoinExec
+    val smjAfterExecution = join.queryExecution.executedPlan.collect {
+      case smj: SortMergeJoinExec => smj
+    }
+    assert(smjAfterExecution.length === 0)
+
+    val numShjAfterExecution = join.queryExecution.executedPlan.collect {
+      case smj: ShuffledHashJoinExec => smj
+    }.length
+    assert(numShjAfterExecution === 1)
   }
 
   test("1 sort merge join to broadcast join") {
@@ -398,6 +427,255 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
     }
   }
 
+  test("1 sort merge join to shuffled hash join") {
+    val spark = defaultSparkSession
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_HASHJOIN_ENABLED.key, "true")
+    spark.conf.set(SQLConf.ADAPTIVE_HASHJOIN_THRESHOLD.key, "20000")
+    spark.conf.set(SQLConf.SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE.key, "20000")
+    withSparkSession(spark) { spark: SparkSession =>
+      val df1 =
+        spark
+          .range(0, 2000, 1, numInputPartitions)
+          .selectExpr("id % 1000 as key1", "id as value1")
+      val df2 =
+        spark
+          .range(0, 2000, 1, numInputPartitions)
+          .selectExpr("id % 1000 as key2", "id as value2")
+
+      val innerJoin = df1.join(df2, col("key1") === col("key2")).select(col("key1"), col("value2"))
+      checkHashJoin(innerJoin, spark)
+
+      val leftJoin =
+        df1.join(df2, col("key1") === col("key2"), "left").select(col("key1"), col("value1"))
+      checkHashJoin(leftJoin, spark)
+    }
+  }
+
+  test("2 sort merge joins to shuffled hash joins") {
+    // Every shuffle partition of t2 and t3 is smaller than
+    // the spark.sql.adaptiveHashJoinThreshold
+    // Both Join1 and Join2 are changed to shuffled hash join.
+    //
+    //              Join2
+    //              /   \
+    //          Join1   Ex (Exchange)
+    //          /   \    \
+    //        Ex    Ex   t3
+    //       /       \
+    //      t1       t2
+    val spark = defaultSparkSession
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_HASHJOIN_ENABLED.key, "true")
+    spark.conf.set(SQLConf.ADAPTIVE_HASHJOIN_THRESHOLD.key, "20000")
+    spark.conf.set(SQLConf.SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE.key, "20000")
+    withSparkSession(spark) { spark: SparkSession =>
+      val df1 =
+        spark
+          .range(0, 2000, 1, numInputPartitions)
+          .selectExpr("id % 1000 as key1", "id as value1")
+      val df2 =
+        spark
+          .range(0, 2000, 1, numInputPartitions)
+          .selectExpr("id % 1000 as key2", "id as value2")
+      val df3 =
+        spark
+          .range(0, 2000, 1, numInputPartitions)
+          .selectExpr("id % 1000 as key3", "id as value3")
+
+      val join =
+        df1
+          .join(df2, col("key1") === col("key2"))
+          .join(df3, col("key2") === col("key3"))
+          .select(col("key3"), col("value1"))
+
+      // Before Execution, there is two SortMergeJoins
+      val smjBeforeExecution = join.queryExecution.executedPlan.collect {
+        case smj: SortMergeJoinExec => smj
+      }
+      assert(smjBeforeExecution.length === 2)
+
+      // Check the answer.
+      val partResult =
+        spark
+          .range(0, 2000)
+          .selectExpr("id % 1000 as key", "id as value")
+          .union(spark.range(0, 2000).selectExpr("id % 1000 as key", "id as value"))
+      val expectedAnswer = partResult.union(partResult)
+      checkAnswer(
+        join,
+        expectedAnswer.collect())
+
+      // During execution, 2 SortMergeJoin are changed to ShuffledHashJoin
+      val smjAfterExecution = join.queryExecution.executedPlan.collect {
+        case smj: SortMergeJoinExec => smj
+      }
+      assert(smjAfterExecution.length === 0)
+
+      val numShjAfterExecution = join.queryExecution.executedPlan.collect {
+        case smj: ShuffledHashJoinExec => smj
+      }.length
+      assert(numShjAfterExecution === 2)
+
+      val queryStageInputs = join.queryExecution.executedPlan.collect {
+        case q: QueryStageInput => q
+      }
+      assert(queryStageInputs.length === 3)
+    }
+  }
+
+  test("One of two sort merge joins to broadcast join " +
+    "and the other one to shuffled hash join") {
+    // t2 is smaller than spark.sql.adaptiveBroadcastJoinThreshold
+    // t1 and t3 are greater than spark.sql.adaptiveBroadcastJoinThreshold
+    // t3 is smaller than spark.sql.adaptiveHashJoinThreshold
+    // Join1 is changed to broadcast join and Join2 is changed to shuffled hash join
+    //
+    //              Join2
+    //              /   \
+    //          Join1   Ex (Exchange)
+    //          /   \    \
+    //        Ex    Ex   t3
+    //       /       \
+    //      t1       t2
+    val spark = defaultSparkSession
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_HASHJOIN_ENABLED.key, "true")
+    spark.conf.set(SQLConf.ADAPTIVE_HASHJOIN_THRESHOLD.key, "20000")
+    spark.conf.set(SQLConf.SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE.key, "20000")
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ALLOW_ADDITIONAL_SHUFFLE.key, "true")
+    withSparkSession(spark) { spark: SparkSession =>
+      val df1 =
+        spark
+          .range(0, 2000, 1, numInputPartitions)
+          .selectExpr("id % 1000 as key1", "id as value1")
+      val df2 =
+        spark
+          .range(0, 1000, 1, numInputPartitions)
+          .selectExpr("id % 1000 as key2", "id as value2")
+      val df3 =
+        spark
+          .range(0, 2000, 1, numInputPartitions)
+          .selectExpr("id % 1000 as key3", "id as value3")
+
+      val join =
+        df1
+          .join(df2, col("key1") === col("key2"))
+          .join(df3, col("key2") === col("key3"))
+          .select(col("key3"), col("value1"))
+
+      // Before Execution, there is two SortMergeJoins
+      val smjBeforeExecution = join.queryExecution.executedPlan.collect {
+        case smj: SortMergeJoinExec => smj
+      }
+      assert(smjBeforeExecution.length === 2)
+
+      // Check the answer.
+      val expectedAnswer =
+        spark
+          .range(0, 2000)
+          .selectExpr("id % 1000 as key", "id as value")
+          .union(spark.range(0, 2000).selectExpr("id % 1000 as key", "id as value"))
+      checkAnswer(
+        join,
+        expectedAnswer.collect())
+
+      // During execution, one SortMergeJoin is changed to BroadcastHashJoin
+      // and the other one is changed to ShuffledHashJoin
+      val numSmjAfterExecution = join.queryExecution.executedPlan.collect {
+        case smj: SortMergeJoinExec => smj
+      }.length
+      assert(numSmjAfterExecution === 0)
+
+      val numBhjAfterExecution = join.queryExecution.executedPlan.collect {
+        case bhj: BroadcastHashJoinExec => bhj
+      }.length
+      assert(numBhjAfterExecution === 1)
+
+      val numShjAfterExecution = join.queryExecution.executedPlan.collect {
+        case shj: ShuffledHashJoinExec => shj
+      }.length
+      assert(numShjAfterExecution === 1)
+
+      val queryStageInputs = join.queryExecution.executedPlan.collect {
+        case q: QueryStageInput => q
+      }
+      assert(queryStageInputs.length === 3)
+    }
+  }
+
+  test("One of two sort merge joins to shuffled hash join") {
+    // t1, t2 and t3 are greater than spark.sql.adaptiveBroadcastJoinThreshold
+    // Every shuffle partition of t2 is smaller than spark.sql.adaptiveHashJoinThreshold
+    // Join1 is changed to shuffled hash join
+    //
+    //              Join2
+    //              /   \
+    //          Join1   Ex (Exchange)
+    //          /   \    \
+    //        Ex    Ex   t3
+    //       /       \
+    //      t1       t2
+    val spark = defaultSparkSession
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_HASHJOIN_ENABLED.key, "true")
+    spark.conf.set(SQLConf.ADAPTIVE_HASHJOIN_THRESHOLD.key, "20000")
+    spark.conf.set(SQLConf.SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE.key, "20000")
+    withSparkSession(spark) { spark: SparkSession =>
+      val df1 =
+        spark
+          .range(0, 20000, 1, numInputPartitions)
+          .selectExpr("id % 5000 as key1", "id as value1")
+      val df2 =
+        spark
+          .range(0, 5000, 1, numInputPartitions)
+          .selectExpr("id % 5000 as key2", "id as value2")
+      val df3 =
+        spark
+          .range(0, 20000, 1, numInputPartitions)
+          .selectExpr("id % 5000 as key3", "id as value3")
+
+      val join =
+        df1
+          .join(df2, col("key1") === col("key2"))
+          .join(df3, col("key2") === col("key3"))
+          .select(col("key3"), col("value1"))
+
+      // Before Execution, there is two SortMergeJoins
+      val smjBeforeExecution = join.queryExecution.executedPlan.collect {
+        case smj: SortMergeJoinExec => smj
+      }
+      assert(smjBeforeExecution.length === 2)
+
+      // Check the answer.
+      val partResult =
+        spark
+          .range(0, 20000)
+          .selectExpr("id % 5000 as key", "id as value")
+          .union(spark.range(0, 20000).selectExpr("id % 5000 as key", "id as value"))
+      val expectedAnswer = partResult.union(partResult)
+      checkAnswer(
+        join,
+        expectedAnswer.collect())
+
+      // During execution, one SortMergeJoin is changed to ShuffledHashJoin
+      val numSmjAfterExecution = join.queryExecution.executedPlan.collect {
+        case smj: SortMergeJoinExec => smj
+      }.length
+      assert(numSmjAfterExecution === 1)
+
+      val numBhjAfterExecution = join.queryExecution.executedPlan.collect {
+        case bhj: BroadcastHashJoinExec => bhj
+      }.length
+      assert(numBhjAfterExecution === 0)
+
+      val numShjAfterExecution = join.queryExecution.executedPlan.collect {
+        case shj: ShuffledHashJoinExec => shj
+      }.length
+      assert(numShjAfterExecution === 1)
+
+      val queryStageInputs = join.queryExecution.executedPlan.collect {
+        case q: QueryStageInput => q
+      }
+      assert(queryStageInputs.length === 3)
+    }
+  }
 
   test("Reuse QueryStage in adaptive execution") {
     withSparkSession(defaultSparkSession) { spark: SparkSession =>

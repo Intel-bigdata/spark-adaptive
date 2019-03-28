@@ -19,11 +19,12 @@ package org.apache.spark.sql.execution.adaptive
 
 import scala.collection.mutable.ArrayBuffer
 
+import org.apache.spark.sql.catalyst.expressions.RowOrdering
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{SortExec, SparkPlan}
 import org.apache.spark.sql.execution.exchange.{EnsureRequirements, ShuffleExchangeExec}
-import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, BuildLeft, BuildRight, SortMergeJoinExec}
+import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.internal.SQLConf
 
 case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
@@ -41,6 +42,39 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
 
   private def canBroadcast(plan: SparkPlan): Boolean = {
     plan.stats.sizeInBytes >= 0 && plan.stats.sizeInBytes <= conf.adaptiveBroadcastJoinThreshold
+  }
+
+  private def canBuildLocalHashMap(plan: SparkPlan): Boolean = {
+    plan match {
+      case sqsi: ShuffleQueryStageInput =>
+        if (sqsi.childStage.stats.bytesByPartitionId.isDefined) {
+          val bytesByPartitionId = sqsi.childStage.stats.bytesByPartitionId.get
+          val adaptiveHashJoinThreshold = conf.adaptiveHashJoinThreshold
+          val allPartitionsBytes = bytesByPartitionId.sum
+          val maxPartitionBytes = bytesByPartitionId.max
+          val allowedAllPartitionsBytes = adaptiveHashJoinThreshold *
+            conf.maxNumPostShufflePartitions * conf.adaptiveHashJoinAllPartitionsFactor
+
+          maxPartitionBytes <= adaptiveHashJoinThreshold ||
+            (maxPartitionBytes <= conf.adaptiveHashJoinMaxPartitionFactor*adaptiveHashJoinThreshold
+              && allPartitionsBytes <= allowedAllPartitionsBytes)
+        } else {
+          false
+        }
+      case sparkPlan =>
+        val shuffleQueryStageInputs: Seq[ShuffleQueryStageInput] = sparkPlan.collect {
+          case sqsi: ShuffleQueryStageInput => sqsi
+        }
+        if (shuffleQueryStageInputs != Nil) {
+          shuffleQueryStageInputs.forall(canBuildLocalHashMap)
+        } else {
+          false
+        }
+    }
+  }
+
+  private def isHashJoinThresholdOverPostShuffleInputSize(): Boolean = {
+    conf.adaptiveHashJoinThreshold >= conf.targetPostShuffleInputSize
   }
 
   private def removeSort(plan: SparkPlan): SparkPlan = {
@@ -123,7 +157,7 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
         } else {
           None
         }
-        broadcastSide.map { buildSide =>
+        val newJoinPlan = broadcastSide.map { buildSide =>
           val broadcastJoin = BroadcastHashJoinExec(
             leftKeys,
             rightKeys,
@@ -181,6 +215,42 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
             smj
           }
         }.getOrElse(smj)
+
+        // sort merge join can not be transformed into broadcast join,
+        // so try to transform into shuffled hash join
+        if (newJoinPlan.fastEquals(smj) && conf.adaptiveHashJoinEnabled) {
+          val hashJoinBuildSide = if (canBuildRight(joinType)
+            && (isHashJoinThresholdOverPostShuffleInputSize
+            && canBuildLocalHashMap(removeSort(right)))
+            || !RowOrdering.isOrderable(leftKeys)) {
+            Some(BuildRight)
+          } else if (canBuildLeft(joinType)
+            && (isHashJoinThresholdOverPostShuffleInputSize
+            && canBuildLocalHashMap(removeSort(left)))
+            || !RowOrdering.isOrderable(rightKeys)) {
+            Some(BuildLeft)
+          } else {
+            None
+          }
+
+          hashJoinBuildSide.map { buildSide =>
+            val hashJoin = ShuffledHashJoinExec(
+              leftKeys,
+              rightKeys,
+              joinType,
+              buildSide,
+              condition,
+              removeSort(left),
+              removeSort(right))
+            val newChild = queryStage.child.transformDown {
+              case s: SortMergeJoinExec if s.fastEquals(smj) => hashJoin
+            }
+            queryStage.child = newChild
+            hashJoin
+          }.getOrElse(smj)
+        } else {
+          newJoinPlan
+        }
     }
   }
 
