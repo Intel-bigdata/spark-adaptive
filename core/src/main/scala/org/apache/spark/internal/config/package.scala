@@ -545,4 +545,11 @@ package object config {
       "threshold. Otherwise CompressedMapStatus is used.")
     .intConf
     .createWithDefault(2000)
+
+  private[spark] val SHUFFLE_CONTINUOUS_BLOCK_BATCH_FETCH_ENABLED =
+    ConfigBuilder("spark.shuffle.continuousBlockBatchFetch.enabled")
+      .doc("When enabled, the adaptive execution engine will try to fetch continuous block " +
+        "in batch.")
+      .booleanConf
+      .createWithDefault(false)
 }
