@@ -49,13 +49,23 @@ abstract class QueryStageInput extends LeafExecNode {
     }
   }
 
-  override def outputPartitioning: Partitioning = childStage.outputPartitioning match {
-    case h: HashPartitioning => h.copy(expressions = h.expressions.map(updateAttr))
-    case other => other
+  override def outputPartitioning: Partitioning = {
+    if (childStage.output.equals(output)) {
+      childStage.outputPartitioning
+    } else {
+      childStage.outputPartitioning match {
+        case e: Expression => updateAttr(e).asInstanceOf[Partitioning]
+        case other => other
+      }
+    }
   }
 
   override def outputOrdering: Seq[SortOrder] = {
-    childStage.outputOrdering.map(updateAttr(_).asInstanceOf[SortOrder])
+    if (childStage.output.equals(output)) {
+      childStage.outputOrdering
+    } else {
+      childStage.outputOrdering.map(updateAttr(_).asInstanceOf[SortOrder])
+    }
   }
 
   override def computeStats(): Statistics = {
