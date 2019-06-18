@@ -1001,4 +1001,29 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
       " union all select count(test.age) from test"),
       Row(1) :: Row(1) :: Row(2) :: Nil)
   }
+
+  test("different pre-shuffle partition number of datasets to union with adaptive") {
+    val sparkSession = defaultSparkSession
+    val dataset1 = sparkSession.range(1000)
+    val dataset2 = sparkSession.range(1001)
+
+    val compute = dataset1.repartition(505, dataset1.col("id"))
+      .union(dataset2.repartition(105, dataset2.col("id")))
+
+    assert(compute.orderBy("id").toDF("id").takeAsList(10).toArray
+      === Seq((0), (0), (1), (1), (2), (2), (3), (3), (4), (4)).map(i => Row(i)).toArray)
+    compute.explain()
+  }
+
+  test("different pre-shuffle partition number of datasets to join with adaptive") {
+    val sparkSession = defaultSparkSession
+    val dataset1 = sparkSession.range(1000)
+    val dataset2 = sparkSession.range(1001)
+    val compute = dataset1.repartition(105).toDF("key1")
+      .join(dataset1.repartition(505).toDF("key2"), col("key1") === col("key2"), "left")
+    assert(compute.orderBy("key1").toDF("key1","key2").select("key1").takeAsList(10).toArray
+      === Seq((0), (1), (2), (3), (4), (5), (6), (7), (8), (9)).map(i => Row(i)).toArray)
+    compute.explain()
+  }
+
 }
