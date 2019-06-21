@@ -85,33 +85,6 @@ abstract class QueryStage extends UnaryExecNode {
       Future.sequence(shuffleStageFutures)(implicitly, QueryStage.executionContext), Duration.Inf)
   }
 
-  def getSupportAdaptiveFlag(queryStageInputs: Seq[ShuffleQueryStageInput]): Boolean = {
-    val queryStageInputsNumPartitions = queryStageInputs.map {
-      _.outputPartitioning match {
-        case hash: HashPartitioning => hash.numPartitions
-        case collection: PartitioningCollection =>
-          val partitioningCollectionNumPartitions = collection.partitionings.map {
-            partitioning => {
-              if (partitioning.isInstanceOf[HashPartitioning]) {
-                partitioning.numPartitions
-              } else {
-                -1
-              }
-            }
-          }.distinct
-          if (partitioningCollectionNumPartitions.length > 1) {
-            -1
-          } else {
-            partitioningCollectionNumPartitions.head
-          }
-        case _ => -1
-      }
-    }.distinct
-    val supportAdaptiveFlag = (queryStageInputsNumPartitions.length == 1
-        && queryStageInputsNumPartitions.head != -1)
-    supportAdaptiveFlag
-  }
-
   private var prepared = false
 
   /**
@@ -153,10 +126,24 @@ abstract class QueryStage extends UnaryExecNode {
     if (leafNodes.length == queryStageInputs.length + skewedShuffleQueryStageInputs.length) {
       val childMapOutputStatistics = queryStageInputs.map(_.childStage.mapOutputStatistics)
         .filter(_ != null).toArray
-      // Right now, Adaptive execution only support HashPartitionings.
-      val supportAdaptive = getSupportAdaptiveFlag(queryStageInputs)
+      // Right now, Adaptive execution only support HashPartitionings and the same number of
+      // pre-shuffle partitions for those stages.
 
-      if (childMapOutputStatistics.length > 0 && supportAdaptive) {
+      // Check partitionings
+      val partitioningsCheck = queryStageInputs.forall {
+        _.outputPartitioning match {
+          case hash: HashPartitioning => true
+          case collection: PartitioningCollection =>
+            collection.partitionings.forall(_.isInstanceOf[HashPartitioning])
+          case _ => false
+        }
+      }
+
+      // Check pre-shuffle partitions num
+      val numPreShufflePartitionsCheck =
+        childMapOutputStatistics.map(stats => stats.bytesByPartitionId.length).distinct == 1
+
+      if (childMapOutputStatistics.length > 0 && partitioningsCheck && numPreShufflePartitionsCheck) {
         val exchangeCoordinator = new ExchangeCoordinator(
           conf.targetPostShuffleInputSize,
           conf.adaptiveTargetPostShuffleRowCount,
