@@ -141,7 +141,7 @@ abstract class QueryStage extends UnaryExecNode {
 
       // Check pre-shuffle partitions num
       val numPreShufflePartitionsCheck =
-        childMapOutputStatistics.map(stats => stats.bytesByPartitionId.length).distinct == 1
+        childMapOutputStatistics.map(stats => stats.bytesByPartitionId.length).distinct.length == 1
 
       if (childMapOutputStatistics.length > 0 && partitioningsCheck && numPreShufflePartitionsCheck) {
         val exchangeCoordinator = new ExchangeCoordinator(
