@@ -35,7 +35,7 @@ import org.apache.spark.sql.internal.SQLConf
  * the input partition ordering requirements are met.
  */
 case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
-  private def defaultNumPreShufflePartitions(plan: SparkPlan): Int =
+  def defaultNumPreShufflePartitions(plan: SparkPlan): Int =
     if (conf.adaptiveExecutionEnabled) {
       if (conf.adaptiveAutoCalculateInitialPartitionNum) {
         autoCalculateInitialPartitionNum(plan)

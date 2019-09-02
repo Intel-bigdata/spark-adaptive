@@ -108,6 +108,7 @@ abstract class QueryStage extends UnaryExecNode {
     // It is possible to optimize this stage's plan here based on the child stages' statistics.
     val oldChild = child
     OptimizeJoin(conf).apply(this)
+    OptimizeSMJtoSHJ(conf).apply(this)
     HandleSkewedJoin(conf).apply(this)
     // If the Joins are changed, we need apply EnsureRequirements rule to add BroadcastExchange.
     if (!oldChild.fastEquals(child)) {

@@ -45,8 +45,12 @@ case class ShuffledHashJoinExec(
     "buildTime" -> SQLMetrics.createTimingMetric(sparkContext, "time to build hash map"),
     "avgHashProbe" -> SQLMetrics.createAverageMetric(sparkContext, "avg hash probe"))
 
-  override def requiredChildDistribution: Seq[Distribution] =
-    HashClusteredDistribution(leftKeys) :: HashClusteredDistribution(rightKeys) :: Nil
+  override def requiredChildDistribution: Seq[Distribution] = joinType match {
+    case Inner | LeftOuter | RightOuter | FullOuter =>
+      HashClusteredDistribution(leftKeys, exceptNull = true) ::
+        HashClusteredDistribution(rightKeys, exceptNull = true) :: Nil
+    case _ => HashClusteredDistribution(leftKeys) :: HashClusteredDistribution(rightKeys) :: Nil
+  }
 
   private def buildHashedRelation(iter: Iterator[InternalRow]): HashedRelation = {
     val buildDataSize = longMetric("buildDataSize")

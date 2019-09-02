@@ -238,6 +238,19 @@ object SQLConf {
     .longConf
     .createOptional
 
+  val ADAPTIVE_EXECUTION_HASHJOIN_ENABLED = buildConf("spark.sql.adaptive.hashJoin.enabled")
+    .doc("When true and adaptive execution is enabled, hash join strategy is determined at " +
+      "runtime.")
+    .booleanConf
+    .createWithDefault(false)
+
+  val ADAPTIVE_EXECUTION_HASHJOIN_FACTOR = buildConf("spark.sql.adaptive.hashjoinFactor")
+      .doc("he cost to build hash map is higher than sorting," +
+        " we should only build hash map on a table that is much smaller" +
+        " than other one. It is the smaller times.")
+      .intConf
+      .createWithDefault(3)
+
   val ADAPTIVE_EXECUTION_ALLOW_ADDITIONAL_SHUFFLE =
     buildConf("spark.sql.adaptive.allowAdditionalShuffle")
       .doc("When true, additional shuffles are allowed during plan optimizations in adaptive " +
@@ -1368,6 +1381,10 @@ class SQLConf extends Serializable with Logging {
 
   def adaptiveBroadcastJoinThreshold: Long =
     getConf(ADAPTIVE_BROADCASTJOIN_THRESHOLD).getOrElse(autoBroadcastJoinThreshold)
+
+  def adaptiveHashJoinEnabled: Boolean = getConf(ADAPTIVE_EXECUTION_HASHJOIN_ENABLED)
+
+  def adaptiveHashJoinFactor: Int = getConf(ADAPTIVE_EXECUTION_HASHJOIN_FACTOR)
 
   def adaptiveAllowAdditionShuffle: Boolean = getConf(ADAPTIVE_EXECUTION_ALLOW_ADDITIONAL_SHUFFLE)
 
