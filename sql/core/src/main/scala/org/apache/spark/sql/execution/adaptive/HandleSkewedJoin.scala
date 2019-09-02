@@ -208,8 +208,12 @@ case class HandleSkewedJoin(conf: SQLConf) extends Rule[SparkPlan] {
           val queryStageInputs: Seq[ShuffleQueryStageInput] = queryStage.collect {
             case input: ShuffleQueryStageInput => input
           }
-          if (queryStageInputs.length == 2) {
+          val leafNodes = plan.collect {
+            case s: SparkPlan if s.children.isEmpty => s
+          }
+          if (queryStageInputs.length == 2 && leafNodes.length == queryStageInputs.length) {
             // Currently we only support handling skewed join for 2 table join.
+            // And the leaf node of current plan is all the shuffle query stage input.
             val optimizedPlan = handleSkewedJoin(queryStage.child, queryStage)
             queryStage.child = optimizedPlan
             queryStage

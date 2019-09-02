@@ -431,6 +431,58 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
     }
   }
 
+  test("disable skewed join optimization when the leaf nodes of" +
+    " plan are not all shuffle query stages") {
+    // Exchange 1 and Exchange 2 is skew, but we does not handle it.
+    // Because the leafNodes of Join2 is not all shuffle query stage input.
+    //
+    //              Join2
+    //              /   \
+    //          Join1   t3_bucketed (there is no exchange between t3_bucketed and Join2)
+    //          /   \
+    //        Ex1    Ex2
+    //       /       \
+    //      t1       t2
+    val spark = defaultSparkSession
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_JOIN_ENABLED.key, "false")
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_SKEWED_JOIN_ENABLED.key, "true")
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_SKEWED_PARTITION_FACTOR.key, 1)
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_SKEWED_PARTITION_SIZE_THRESHOLD.key, 1)
+    try
+      withSparkSession(spark) { spark: SparkSession =>
+      spark.range(0, 2).write.mode(SaveMode.Overwrite).saveAsTable("t1")
+      spark.range(0, 2).write.mode(SaveMode.Overwrite).saveAsTable("t2")
+      spark.range(0, 2)
+        .write
+        .bucketBy(5, "id")
+        .sortBy("id")
+        .mode(SaveMode.Overwrite)
+        .saveAsTable("t3_bucketed")
+      val t1 = spark.table("t1")
+      val t2 = spark.table("t2")
+      val t3 = spark.table("t3_bucketed")
+      val join = t1.join(t2, "id").join(t3, "id")
+      // Before Execution, there is two SortMergeJoin
+      val smjBeforeExecution = join.queryExecution.executedPlan.collect {
+        case smj: SortMergeJoinExec => smj
+      }
+      assert(smjBeforeExecution.length === 2)
+      checkAnswer(join,
+        Row(0) ::
+        Row(1) ::Nil)
+      // After Execution, there is still two SortMergeJoin.
+      // Because the skew join optimization is disabled.
+      val smjAfterExecution = join.queryExecution.executedPlan.collect {
+        case smj: SortMergeJoinExec => smj
+      }
+      assert(smjAfterExecution.length === 2)
+    } finally {
+      spark.sql("DROP TABLE IF EXISTS t1")
+      spark.sql("DROP TABLE IF EXISTS t2")
+      spark.sql("DROP TABLE IF EXISTS t3_bucketed")
+    }
+  }
+
   test("adaptive skewed join") {
     val spark = defaultSparkSession
     spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_JOIN_ENABLED.key, "false")
