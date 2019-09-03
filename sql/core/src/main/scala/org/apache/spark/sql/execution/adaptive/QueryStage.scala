@@ -20,7 +20,7 @@ package org.apache.spark.sql.execution.adaptive
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration.Duration
 
-import org.apache.spark.{broadcast, MapOutputStatistics, SparkContext}
+import org.apache.spark.{broadcast, MapOutputStatistics}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
@@ -52,8 +52,7 @@ abstract class QueryStage extends UnaryExecNode {
    * blocking on one child stage.
    */
   def executeChildStages(): Unit = {
-    val executionId = sqlContext.sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
-    val jobDesc = sqlContext.sparkContext.getLocalProperty(SparkContext.SPARK_JOB_DESCRIPTION)
+    val prop = sqlContext.sparkContext.getLocalProperties
 
     // Handle broadcast stages
     val broadcastQueryStages: Seq[BroadcastQueryStage] = child.collect {
@@ -61,7 +60,7 @@ abstract class QueryStage extends UnaryExecNode {
     }
     val broadcastFutures = broadcastQueryStages.map { queryStage =>
       Future {
-        SQLExecution.withExecutionIdAndJobDesc(sqlContext.sparkContext, executionId, jobDesc) {
+        SQLExecution.withJobProperties(sqlContext.sparkContext, prop) {
           queryStage.prepareBroadcast()
         }
       }(QueryStage.executionContext)
@@ -73,7 +72,7 @@ abstract class QueryStage extends UnaryExecNode {
     }
     val shuffleStageFutures = shuffleQueryStages.map { queryStage =>
       Future {
-        SQLExecution.withExecutionIdAndJobDesc(sqlContext.sparkContext, executionId, jobDesc) {
+        SQLExecution.withJobProperties(sqlContext.sparkContext, prop) {
           queryStage.execute()
         }
       }(QueryStage.executionContext)
