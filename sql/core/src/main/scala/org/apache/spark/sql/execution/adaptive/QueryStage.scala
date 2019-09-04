@@ -111,7 +111,7 @@ abstract class QueryStage extends UnaryExecNode {
     HandleSkewedJoin(conf).apply(this)
     // If the Joins are changed, we need apply EnsureRequirements rule to add BroadcastExchange.
     if (!oldChild.fastEquals(child)) {
-      child = EnsureRequirements(conf).apply(child)
+      child = EnsureRequirements(conf, true).apply(child)
     }
 
     // 2. Determine reducer number

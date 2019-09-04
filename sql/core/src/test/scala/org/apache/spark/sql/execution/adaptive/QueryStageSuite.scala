@@ -1067,4 +1067,53 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
     assert(compute.orderBy("id").toDF("id").takeAsList(10).toArray
       === Seq((0), (0), (1), (1), (2), (2), (3), (3), (4), (4)).map(i => Row(i)).toArray)
   }
+
+  test("test HashAggregate with adaptive by different numInputPartitions ") {
+    val end = 1000
+    Seq(1, 2).map { numInputPartitions => {
+      val spark = SparkSession.builder()
+        .master("local[*]")
+        .config("spark.sql.adaptive.maxNumPostShufflePartitions", 200)
+        .config("spark.sql.adaptive.minNumPostShufflePartitions", 1)
+        .config("spark.sql.adaptive.enabled", true)
+        .config("spark.sql.adaptive.autoCalculateInitialPartitionNum", true)
+        .config("spark.sql.adaptive.join.enabled", true)
+        .config("spark.sql.adaptiveBroadcastJoinThreshold", 10L * 1024 * 1024)
+        .config("spark.sql.orc.impl", "native")
+        .getOrCreate()
+
+      import spark.implicits._
+
+      val df1 = spark.range(0, end, 1, numInputPartitions).map {
+        row => (row % 500, row * 2000)
+      }.toDF("key1", "value1")
+
+      val df2 = spark.range(0, end, 1, numInputPartitions).map {
+        row => (row % 500, row * 2000)
+      }.toDF("key2", "value2")
+
+      val join1 = df1.join(df2, col("key1") === col("key2"))
+        .select(col("key1")).toDF("key1_1")
+
+      val join2 = df1.join(df2, col("key1") === col("key2"))
+        .select(col("key1")).toDF("key2_1")
+
+      val join3 = join1.join(join2, col("key1_1") === col("key2_1"))
+        .select(col("key1_1"), col("key2_1"))
+      spark.sql("CREATE  DATABASE IF NOT EXISTS default")
+
+      // note that: the result of 'join3.agg("key1_1" -> "sum").collect()'  will be 998000, 998000
+      // without this patch, when numInputPartitions = 2.
+      // assert(join3.agg("key1_1" -> "sum").collect().toSeq === Seq(998000, 998000)
+      // .map(i => Row(i)))
+      assert(join3.agg("key1_1" -> "sum").collect().toSeq === Seq(1996000).map(i => Row(i)))
+
+      // note that: the result of 'join3.agg("key1_1" -> "count").collect()' will be 4000,4000
+      // without this patch, when numInputPartitions = 2.
+      // assert(join3.agg("key1_1" -> "count").collect().toSeq === Seq(4000,4000).map(i => Row(i)))
+      assert(join3.agg("key1_1" -> "count").collect().toSeq === Seq(8000).map(i => Row(i)))
+      spark.stop()
+    }
+    }
+  }
 }

@@ -24,6 +24,8 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution._
+import org.apache.spark.sql.execution.adaptive.ShuffleQueryStageInput
+import org.apache.spark.sql.execution.aggregate.HashAggregateExec
 import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, ShuffledHashJoinExec, SortMergeJoinExec}
 import org.apache.spark.sql.internal.SQLConf
 
@@ -34,7 +36,8 @@ import org.apache.spark.sql.internal.SQLConf
  * each operator by inserting [[ShuffleExchangeExec]] Operators where required.  Also ensure that
  * the input partition ordering requirements are met.
  */
-case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
+case class EnsureRequirements(conf: SQLConf, adaptiveBroadcastExchangeFlag: Boolean = false)
+  extends Rule[SparkPlan] {
   private def defaultNumPreShufflePartitions(plan: SparkPlan): Int =
     if (conf.adaptiveExecutionEnabled) {
       if (conf.adaptiveAutoCalculateInitialPartitionNum) {
@@ -59,6 +62,33 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
     }
   }
 
+  /**
+   * The result of Aggregate Expression ( e.g.: sum, count.) will be wrong with adaptive,
+   * when smj -> bhj and bhj’s numPartitions made to be 1 by autoCalculateInitialPartitionNum
+   * and bhj’s reduce-num (it’s same to the number of the parent partitions of the map output) > 1.
+   * So, we should change the conditions to add ShuffleExchangeExec to solve that, but it's not need
+   * when bhj’s reduce-num is 1.
+   */
+  private def getSupportHashAggregateWithAdaptiveBroadcastExchange(child: SparkPlan, required:
+      Distribution): Boolean = {
+    if (adaptiveBroadcastExchangeFlag) {
+      child match {
+        case hashAggregateExec: HashAggregateExec =>
+          if (required == AllTuples) {
+            val queryStageInputs: Seq[ShuffleQueryStageInput] = hashAggregateExec.collect {
+              case input: ShuffleQueryStageInput => input
+            }
+            var numMapper = 0
+            if (queryStageInputs.length >= 1) {
+              numMapper = queryStageInputs.map(_.numMapper()).max
+            }
+            numMapper <= 1
+          } else true
+        case _ => true
+      }
+    } else true
+  }
+
   private def ensureDistributionAndOrdering(operator: SparkPlan, rootNode: SparkPlan): SparkPlan = {
     val requiredChildDistributions: Seq[Distribution] = operator.requiredChildDistribution
     val requiredChildOrderings: Seq[Seq[SortOrder]] = operator.requiredChildOrdering
@@ -68,7 +98,8 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
 
     // Ensure that the operator's children satisfy their output distribution requirements.
     children = children.zip(requiredChildDistributions).map {
-      case (child, distribution) if child.outputPartitioning.satisfies(distribution) =>
+      case (child, distribution) if child.outputPartitioning.satisfies(distribution) &&
+        getSupportHashAggregateWithAdaptiveBroadcastExchange(child, distribution) =>
         child
       case (child, BroadcastDistribution(mode)) =>
         BroadcastExchangeExec(mode, child)
