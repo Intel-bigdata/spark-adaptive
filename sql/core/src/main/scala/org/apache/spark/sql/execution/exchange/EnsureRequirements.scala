@@ -206,7 +206,7 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
   def apply(plan: SparkPlan): SparkPlan = {
     // Record the rootNode is order to collect all the leaves node of the rootNode
     // when calculate the initial partition num
-    val rootNode = plan;
+    val rootNode = plan
     plan.transformUp {
       // TODO: remove this after we create a physical operator for `RepartitionByExpression`.
       case operator @ ShuffleExchangeExec(upper: HashPartitioning, child) =>

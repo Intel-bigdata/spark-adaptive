@@ -288,6 +288,14 @@ object SQLConf {
     .longConf
     .createWithDefault(20L * 1000 * 1000)
 
+  val ADAPTIVE_EXECUTION_PARTITIONED_TABLE_SIZE_ENABLED =
+    buildConf("spark.sql.adaptive.partitionedTableSize.enabled")
+    .doc("When true and adaptive execution is enabled," +
+      " we collect the partitioned table size by calling the" +
+      " listPartitions method in ExternalCatalog.")
+    .booleanConf
+    .createWithDefault(false)
+
   val SHUFFLE_MIN_NUM_POSTSHUFFLE_PARTITIONS =
     buildConf("spark.sql.adaptive.minNumPostShufflePartitions")
       .doc("The advisory minimum number of post-shuffle partitions used in adaptive execution.")
@@ -1375,6 +1383,9 @@ class SQLConf extends Serializable with Logging {
 
   def adaptiveAutoCalculateInitialPartitionNum: Boolean =
     getConf(ADAPTIVE_EXECUTION_AUTO_CALCULATE_INITIAL_PARTITION_NUM)
+
+  def adaptivePartitionedTableSizeEnabled: Boolean =
+    getConf(ADAPTIVE_EXECUTION_PARTITIONED_TABLE_SIZE_ENABLED)
 
   def minBatchesToRetain: Int = getConf(MIN_BATCHES_TO_RETAIN)
 
