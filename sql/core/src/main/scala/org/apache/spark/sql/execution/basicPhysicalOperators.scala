@@ -557,7 +557,7 @@ case class RangeExec(range: org.apache.spark.sql.catalyst.plans.logical.Range)
   override def simpleString: String = s"Range ($start, $end, step=$step, splits=$numSlices)"
 
   override def computeStats: Statistics = {
-    Statistics(LongType.defaultSize * numElements)
+    Statistics(LongType.defaultSize * numElements, rowCount = Some(numElements))
   }
 }
 

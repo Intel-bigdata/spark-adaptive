@@ -882,7 +882,7 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
       // MapStatus uses log base 1.1 on records to compress,
       // after decompressing, it becomes to 106
       val stats = siAfterExecution.head.childStage.mapOutputStatistics
-      assert(stats.recordsByPartitionId.count(_ == 106) == 1)
+      assert(stats.rowCountsByPartitionId.count(_ == 106) == 1)
     }
   }
 
@@ -908,7 +908,7 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
       // MapStatus uses log base 1.1 on records to compress,
       // after decompressing, it becomes to 106
       val stats = siAfterExecution.head.childStage.mapOutputStatistics
-      assert(stats.recordsByPartitionId.count(_ == 106) == 1)
+      assert(stats.rowCountsByPartitionId.count(_ == 106) == 1)
     }
   }
 
@@ -930,7 +930,7 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
       assert(siAfterExecution.length === 1)
 
       val stats = siAfterExecution.head.childStage.mapOutputStatistics
-      assert(stats.recordsByPartitionId.isEmpty)
+      assert(stats.rowCountsByPartitionId.isEmpty)
     }
   }
 
