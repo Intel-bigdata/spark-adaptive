@@ -256,17 +256,20 @@ abstract class SparkPlan
    * UnsafeRow is highly compressible (at least 8 bytes for any column), the byte array is also
    * compressed.
    */
-  private def getByteArrayRdd(n: Int = -1): RDD[(Long, Array[Byte])] = {
+  private def getByteArrayRdd(n: Int = -1): RDD[(Long, Array[Byte], Int)] = {
     execute().mapPartitionsInternal { iter =>
       var count = 0
       val buffer = new Array[Byte](4 << 10)  // 4K
       val codec = CompressionCodec.createCodec(SparkEnv.get.conf)
       val bos = new ByteArrayOutputStream()
       val out = new DataOutputStream(codec.compressedOutputStream(bos))
+      var estimatedPageSize = 0
+
       // `iter.hasNext` may produce one row and buffer it, we should only call it when the limit is
       // not hit.
       while ((n < 0 || count < n) && iter.hasNext) {
         val row = iter.next().asInstanceOf[UnsafeRow]
+        estimatedPageSize += (row.getSizeInBytes + 7 + 8) / 8
         out.writeInt(row.getSizeInBytes)
         row.writeToStream(out, buffer)
         count += 1
@@ -274,7 +277,7 @@ abstract class SparkPlan
       out.writeInt(-1)
       out.flush()
       out.close()
-      Iterator((count, bos.toByteArray))
+      Iterator((count, bos.toByteArray, estimatedPageSize))
     }
   }
 
@@ -315,11 +318,12 @@ abstract class SparkPlan
     results.toArray
   }
 
-  private[spark] def executeCollectIterator(): (Long, Iterator[InternalRow]) = {
+  private[spark] def executeCollectIterator(): (Long, Iterator[InternalRow], Int) = {
     val countsAndBytes = getByteArrayRdd().collect()
     val total = countsAndBytes.map(_._1).sum
+    val estimatedPageSize = countsAndBytes.map(_._3).sum
     val rows = countsAndBytes.iterator.flatMap(countAndBytes => decodeUnsafeRows(countAndBytes._2))
-    (total, rows)
+    (total, rows, estimatedPageSize)
   }
 
   /**

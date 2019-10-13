@@ -76,7 +76,7 @@ case class BroadcastExchangeExec(
         try {
           val beforeCollect = System.nanoTime()
           // Use executeCollect/executeCollectIterator to avoid conversion to Scala types
-          val (numRows, input) = child.executeCollectIterator()
+          val (numRows, input, estimatedPageSize) = child.executeCollectIterator()
           if (numRows >= 512000000) {
             throw new SparkException(
               s"Cannot broadcast the table with more than 512 millions rows: $numRows rows")
@@ -84,9 +84,8 @@ case class BroadcastExchangeExec(
 
           val beforeBuild = System.nanoTime()
           longMetric("collectTime") += (beforeBuild - beforeCollect) / 1000000
-
           // Construct the relation.
-          val relation = mode.transform(input, Some(numRows))
+          val relation = mode.transform(input, Some(numRows), estimatedPageSize)
 
           val dataSize = relation match {
             case map: HashedRelation =>

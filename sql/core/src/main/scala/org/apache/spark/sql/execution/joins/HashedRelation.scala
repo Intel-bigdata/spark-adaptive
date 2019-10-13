@@ -92,6 +92,7 @@ private[execution] object HashedRelation {
       input: Iterator[InternalRow],
       key: Seq[Expression],
       sizeEstimate: Int = 64,
+      estimatedPageSize: Int = 0,
       taskMemoryManager: TaskMemoryManager = null): HashedRelation = {
     val mm = Option(taskMemoryManager).getOrElse {
       new TaskMemoryManager(
@@ -104,7 +105,7 @@ private[execution] object HashedRelation {
     }
 
     if (key.length == 1 && key.head.dataType == LongType) {
-      LongHashedRelation(input, key, sizeEstimate, mm)
+      LongHashedRelation(input, key, sizeEstimate, mm, estimatedPageSize)
     } else {
       UnsafeHashedRelation(input, key, sizeEstimate, mm)
     }
@@ -354,7 +355,8 @@ private[joins] object UnsafeHashedRelation {
  *
  * see http://java-performance.info/implementing-world-fastest-java-int-to-int-hash-map/
  */
-private[execution] final class LongToUnsafeRowMap(val mm: TaskMemoryManager, capacity: Int)
+private[execution] final class LongToUnsafeRowMap(val mm: TaskMemoryManager,
+  capacity: Int, estimatePageSize: Int = 0)
   extends MemoryConsumer(mm) with Externalizable with KryoSerializable {
 
   // Whether the keys are stored in dense mode or not.
@@ -419,9 +421,14 @@ private[execution] final class LongToUnsafeRowMap(val mm: TaskMemoryManager, cap
       var n = 1
       while (n < capacity) n *= 2
       ensureAcquireMemory(n * 2L * 8 + (1 << 20))
-      array = new Array[Long](n * 2)
+      // increase the array length by 1.25x in init method
+      array = new Array[Long]((n * 2 * 1.25).toInt)
       mask = n * 2 - 2
-      page = new Array[Long](1 << 17)  // 1M bytes
+      if (estimatePageSize > 0) {
+        page = new Array[Long](estimatePageSize)
+      } else {
+        page = new Array[Long](1 << 17) // 1M bytes
+      }
     }
   }
 
@@ -574,8 +581,8 @@ private[execution] final class LongToUnsafeRowMap(val mm: TaskMemoryManager, cap
       array(pos) = key
       array(pos + 1) = address
       numKeys += 1
-      if (numKeys * 4 > array.length) {
-        // reach half of the capacity
+      if (numKeys * 8 > array.length * 3) {
+        // reach 0.75f of the capacity to prevent the array grow
         if (array.length < (1 << 30)) {
           // Cannot allocate an array with 2G elements
           growArray()
@@ -820,9 +827,9 @@ private[joins] object LongHashedRelation {
       input: Iterator[InternalRow],
       key: Seq[Expression],
       sizeEstimate: Int,
-      taskMemoryManager: TaskMemoryManager): LongHashedRelation = {
-
-    val map = new LongToUnsafeRowMap(taskMemoryManager, sizeEstimate)
+      taskMemoryManager: TaskMemoryManager,
+      estimatedPageSize: Int = 0): LongHashedRelation = {
+    val map = new LongToUnsafeRowMap(taskMemoryManager, sizeEstimate, estimatedPageSize)
     val keyGenerator = UnsafeProjection.create(key)
 
     // Create a mapping of key -> rows
@@ -851,10 +858,10 @@ private[execution] case class HashedRelationBroadcastMode(key: Seq[Expression])
 
   override def transform(
       rows: Iterator[InternalRow],
-      sizeHint: Option[Long]): HashedRelation = {
+      sizeHint: Option[Long], estimatedPageSize: Int = 0): HashedRelation = {
     sizeHint match {
       case Some(numRows) =>
-        HashedRelation(rows, canonicalized.key, numRows.toInt)
+        HashedRelation(rows, canonicalized.key, numRows.toInt, estimatedPageSize)
       case None =>
         HashedRelation(rows, canonicalized.key)
     }

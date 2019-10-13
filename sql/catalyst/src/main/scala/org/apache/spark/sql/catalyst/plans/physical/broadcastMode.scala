@@ -26,7 +26,8 @@ import org.apache.spark.sql.catalyst.InternalRow
 trait BroadcastMode {
   def transform(rows: Array[InternalRow]): Any
 
-  def transform(rows: Iterator[InternalRow], sizeHint: Option[Long]): Any
+  def transform(rows: Iterator[InternalRow], sizeHint: Option[Long],
+      estimatedPageSize: Int = 0): Any
 
   def canonicalized: BroadcastMode
 }
@@ -40,7 +41,7 @@ case object IdentityBroadcastMode extends BroadcastMode {
 
   override def transform(
       rows: Iterator[InternalRow],
-      sizeHint: Option[Long]): Array[InternalRow] = rows.toArray
+      sizeHint: Option[Long], estimatedPageSize: Int = 0): Array[InternalRow] = rows.toArray
 
   override def canonicalized: BroadcastMode = this
 }
