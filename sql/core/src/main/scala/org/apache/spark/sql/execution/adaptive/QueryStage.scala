@@ -17,6 +17,9 @@
 
 package org.apache.spark.sql.execution.adaptive
 
+import java.util.concurrent.ConcurrentHashMap
+
+import scala.collection.JavaConverters._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration.Duration
 
@@ -54,6 +57,7 @@ abstract class QueryStage extends UnaryExecNode {
   def executeChildStages(): Unit = {
     val executionId = sqlContext.sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
     val jobDesc = sqlContext.sparkContext.getLocalProperty(SparkContext.SPARK_JOB_DESCRIPTION)
+    val executionContext = QueryStage.getExecutionContext(executionId)
 
     // Handle broadcast stages
     val broadcastQueryStages: Seq[BroadcastQueryStage] = child.collect {
@@ -64,7 +68,7 @@ abstract class QueryStage extends UnaryExecNode {
         SQLExecution.withExecutionIdAndJobDesc(sqlContext.sparkContext, executionId, jobDesc) {
           queryStage.prepareBroadcast()
         }
-      }(QueryStage.executionContext)
+      }(executionContext)
     }
 
     // Submit shuffle stages
@@ -76,13 +80,13 @@ abstract class QueryStage extends UnaryExecNode {
         SQLExecution.withExecutionIdAndJobDesc(sqlContext.sparkContext, executionId, jobDesc) {
           queryStage.execute()
         }
-      }(QueryStage.executionContext)
+      }(executionContext)
     }
 
     ThreadUtils.awaitResult(
-      Future.sequence(broadcastFutures)(implicitly, QueryStage.executionContext), Duration.Inf)
+      Future.sequence(broadcastFutures)(implicitly, executionContext), Duration.Inf)
     ThreadUtils.awaitResult(
-      Future.sequence(shuffleStageFutures)(implicitly, QueryStage.executionContext), Duration.Inf)
+      Future.sequence(shuffleStageFutures)(implicitly, executionContext), Duration.Inf)
   }
 
   private var prepared = false
@@ -232,7 +236,17 @@ abstract class QueryStage extends UnaryExecNode {
 /**
  * The last QueryStage of an execution plan.
  */
-case class ResultQueryStage(var child: SparkPlan) extends QueryStage
+case class ResultQueryStage(var child: SparkPlan) extends QueryStage {
+  override def doExecute(): RDD[InternalRow] = {
+    try {
+      super.doExecute()
+    } finally {
+      // Cleanup executionContext when the execution plan is finished
+      val executionId = sqlContext.sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
+      QueryStage.removeExecutionContext(executionId)
+    }
+  }
+}
 
 /**
  * A shuffle QueryStage whose child is a ShuffleExchange.
@@ -282,6 +296,16 @@ case class BroadcastQueryStage(var child: SparkPlan) extends QueryStage {
 }
 
 object QueryStage {
-  private[execution] val executionContext = ExecutionContext.fromExecutorService(
-    ThreadUtils.newDaemonCachedThreadPool("adaptive-query-stage"))
+  private[execution] val executionContexts = new ConcurrentHashMap[String, ExecutionContext].asScala
+
+  private[execution] def getExecutionContext(executionId: String): ExecutionContext = {
+    executionContexts.getOrElseUpdate(executionId, {
+      ExecutionContext.fromExecutorService(
+        ThreadUtils.newDaemonCachedThreadPool(s"adaptive-query-stage-$executionId"))
+    })
+  }
+
+  private[execution] def removeExecutionContext(executionId: String): ExecutionContext = {
+    executionContexts.remove(executionId).orNull
+  }
 }
