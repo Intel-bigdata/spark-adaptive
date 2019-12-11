@@ -20,7 +20,7 @@ package org.apache.spark.shuffle
 import org.apache.spark._
 import org.apache.spark.internal.{config, Logging}
 import org.apache.spark.serializer.SerializerManager
-import org.apache.spark.storage.{BlockManager, ShuffleBlockFetcherIterator}
+import org.apache.spark.storage.{BlockManager, PartialBlockFetcherIterator, ShuffleBlockFetcherIterator}
 import org.apache.spark.util.CompletionIterator
 import org.apache.spark.util.collection.ExternalSorter
 
@@ -60,19 +60,33 @@ private[spark] class BlockStoreShuffleReader[K, C](
       case (_, _) => throw new IllegalArgumentException(
         "startMapId and endMapId should be both set or unset")
     }
-    val wrappedStreams = new ShuffleBlockFetcherIterator(
-      context,
-      blockManager.shuffleClient,
-      blockManager,
-      blocksByAddress,
-      serializerManager.wrapStream,
-      // Note: we use getSizeAsMb when no suffix is provided for backwards compatibility
-      SparkEnv.get.conf.getSizeAsMb("spark.reducer.maxSizeInFlight", "48m") * 1024 * 1024,
-      SparkEnv.get.conf.getInt("spark.reducer.maxReqsInFlight", Int.MaxValue),
-      SparkEnv.get.conf.get(config.REDUCER_MAX_BLOCKS_IN_FLIGHT_PER_ADDRESS),
-      SparkEnv.get.conf.get(config.MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM),
-      SparkEnv.get.conf.getBoolean("spark.shuffle.detectCorrupt", true))
-
+    val flag = SparkEnv.get.conf.getBoolean("spark.shuffle.removeStageBarrier", false)
+    val wrappedStreams = if (flag) {
+      new PartialBlockFetcherIterator(
+        context,
+        blockManager.shuffleClient,
+        blockManager,
+        startPartition,
+        endPartition,
+        startMapId,
+        endMapId,
+        serializerManager.wrapStream,
+        dep.shuffleId
+      )
+    } else {
+      new ShuffleBlockFetcherIterator(
+        context,
+        blockManager.shuffleClient,
+        blockManager,
+        blocksByAddress,
+        serializerManager.wrapStream,
+        // Note: we use getSizeAsMb when no suffix is provided for backwards compatibility
+        SparkEnv.get.conf.getSizeAsMb("spark.reducer.maxSizeInFlight", "48m") * 1024 * 1024,
+        SparkEnv.get.conf.getInt("spark.reducer.maxReqsInFlight", Int.MaxValue),
+        SparkEnv.get.conf.get(config.REDUCER_MAX_BLOCKS_IN_FLIGHT_PER_ADDRESS),
+        SparkEnv.get.conf.get(config.MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM),
+        SparkEnv.get.conf.getBoolean("spark.shuffle.detectCorrupt", true))
+    }
     val serializerInstance = dep.serializer.newInstance()
 
     // Create a key/value iterator for each stream

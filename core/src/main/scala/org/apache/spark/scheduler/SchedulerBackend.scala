@@ -45,6 +45,8 @@ private[spark] trait SchedulerBackend {
       reason: String): Unit =
     throw new UnsupportedOperationException
 
+  def freeSlotAvail(numTask: Int): Boolean = false
+
   def isReady(): Boolean = true
 
   /**

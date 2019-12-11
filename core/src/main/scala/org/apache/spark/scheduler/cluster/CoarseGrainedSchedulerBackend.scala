@@ -55,6 +55,14 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
   // is equal to at least this value, that is double between 0 and 1.
   private val _minRegisteredRatio =
     math.min(1, conf.getDouble("spark.scheduler.minRegisteredResourcesRatio", 0))
+
+  override def freeSlotAvail(numTask: Int): Boolean = {
+    val flag = numTask * scheduler.CPUS_PER_TASK < totalCoreCount.get()
+    if(flag) logInfo("have extra cpu resource")
+    else logInfo("not enough cpu resource ")
+    flag
+  }
+
   // Submit tasks after maxRegisteredWaitingTime milliseconds
   // if minRegisteredRatio has not yet been reached
   private val maxRegisteredWaitingTimeMs =
