@@ -271,6 +271,14 @@ object SQLConf {
     .longConf
     .createOptional
 
+  val ADAPTIVE_BROADCASTJOIN_RAW_SIZE_THRESHOLD =
+    buildConf("spark.sql.adaptiveBroadcastJoinRawSizeThreshold")
+      .doc("In order to prevernt the OOM issue when building hash table," +
+        " AE add the condition check of the raw size estimation based on the row counts." +
+        " When it is set -1 or the row count is none, disable the raw size condition check.")
+      .longConf
+      .createWithDefault(100L * 1024 * 1024) // 100M
+
   val ADAPTIVE_EXECUTION_ALLOW_ADDITIONAL_SHUFFLE =
     buildConf("spark.sql.adaptive.allowAdditionalShuffle")
       .doc("When true, additional shuffles are allowed during plan optimizations in adaptive " +
@@ -1721,6 +1729,9 @@ class SQLConf extends Serializable with Logging {
 
   def adaptiveBroadcastJoinThreshold: Long =
     getConf(ADAPTIVE_BROADCASTJOIN_THRESHOLD).getOrElse(autoBroadcastJoinThreshold)
+
+  def adaptiveBroadcastJoinRawSizeThreshold: Long =
+    getConf(ADAPTIVE_BROADCASTJOIN_RAW_SIZE_THRESHOLD)
 
   def adaptiveAllowAdditionShuffle: Boolean = getConf(ADAPTIVE_EXECUTION_ALLOW_ADDITIONAL_SHUFFLE)
 

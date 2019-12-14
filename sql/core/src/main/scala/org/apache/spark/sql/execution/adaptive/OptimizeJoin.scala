@@ -40,7 +40,19 @@ case class OptimizeJoin(conf: SQLConf) extends Rule[SparkPlan] {
   }
 
   private def canBroadcast(plan: SparkPlan): Boolean = {
-    plan.stats.sizeInBytes >= 0 && plan.stats.sizeInBytes <= conf.adaptiveBroadcastJoinThreshold
+    // In order to prevent the OOM issue when building hash table,
+    // we add the estimation raw size condition based on the row counts.
+    val compressedSizeCheck = plan.stats.sizeInBytes >= 0 &&
+      plan.stats.sizeInBytes <= conf.adaptiveBroadcastJoinThreshold
+    if (!compressedSizeCheck && conf.adaptiveBroadcastJoinRawSizeThreshold == -1) {
+      return false
+    }
+
+    val rowCounts: Long = if (plan.stats.recordStatistics.nonEmpty) {
+      plan.stats.recordStatistics.get.record.toLong
+    } else -1
+    val rawSize = rowCounts * (plan.output.map(_.dataType.defaultSize).sum)
+    rawSize >= 0 && rawSize < conf.adaptiveBroadcastJoinRawSizeThreshold
   }
 
   private def removeSort(plan: SparkPlan): SparkPlan = {

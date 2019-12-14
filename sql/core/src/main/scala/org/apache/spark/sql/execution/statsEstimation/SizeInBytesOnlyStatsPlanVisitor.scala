@@ -40,12 +40,21 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
     }
 
     // Don't propagate rowCount and attributeStats, since they are not estimated here.
-    Statistics(sizeInBytes = sizeInBytes)
+    Statistics(sizeInBytes = sizeInBytes, recordStatistics = p.child.stats.recordStatistics)
   }
 
   override def default(p: SparkPlan): Statistics = p match {
     case p: LeafExecNode => p.computeStats()
-    case _: SparkPlan => Statistics(sizeInBytes = p.children.map(_.stats.sizeInBytes).product)
+    case _: SparkPlan =>
+      val totalRecordStatistics = if (p.children.forall(_.stats.recordStatistics.nonEmpty)) {
+        val recordStatistics: Seq[RecordStatistics] = p.children.map(_.stats.recordStatistics.get)
+        val records = recordStatistics.map(_.record).sum
+        Option(RecordStatistics(record = records,
+          new Array[Long](recordStatistics.head.recordsByPartitionId.length)))
+      } else None
+
+      Statistics(sizeInBytes = p.children.map(_.stats.sizeInBytes).product,
+        recordStatistics = totalRecordStatistics)
   }
 
   override def visitFilterExec(p: FilterExec): Statistics = visitUnaryExecNode(p)
@@ -55,7 +64,7 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
   override def visitHashAggregateExec(p: HashAggregateExec): Statistics = {
     if (p.groupingExpressions.isEmpty) {
       val sizeInBytes = 8 + p.output.map(_.dataType.defaultSize).sum
-      Statistics(sizeInBytes)
+      Statistics(sizeInBytes, recordStatistics = p.child.stats.recordStatistics)
     } else {
       visitUnaryExecNode(p)
     }
@@ -67,7 +76,16 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
         // LeftSemi and LeftAnti won't ever be bigger than left
         p.left.stats
       case _ =>
-        Statistics(sizeInBytes = p.left.stats.sizeInBytes * p.right.stats.sizeInBytes)
+        val totalRecordStatistics = if (p.left.stats.recordStatistics.nonEmpty &&
+          p.right.stats.recordStatistics.nonEmpty) {
+          val records = p.left.stats.recordStatistics.get.record +
+            p.right.stats.recordStatistics.get.record
+          Option(RecordStatistics(record = records,
+            recordsByPartitionId = new Array[Long](
+              p.left.stats.recordStatistics.get.recordsByPartitionId.length)))
+        } else None
+        Statistics(sizeInBytes = p.left.stats.sizeInBytes * p.right.stats.sizeInBytes,
+          recordStatistics = totalRecordStatistics)
     }
   }
 
@@ -92,7 +110,7 @@ object SizeInBytesOnlyStatsPlanVisitor extends SparkPlanVisitor[Statistics] {
   override def visitSortAggregateExec(p: SortAggregateExec): Statistics = {
     if (p.groupingExpressions.isEmpty) {
       val sizeInBytes = 8 + p.output.map(_.dataType.defaultSize).sum
-      Statistics(sizeInBytes)
+      Statistics(sizeInBytes, recordStatistics = p.child.stats.recordStatistics)
     } else {
       visitUnaryExecNode(p)
     }
