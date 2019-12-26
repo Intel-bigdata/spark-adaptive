@@ -300,9 +300,10 @@ class MapOutputTrackerSuite extends SparkFunSuite {
   }
 
   test("fetch contiguous partitions") {
+    conf.set("spark.shuffle.continuousBlockBatchFetch.enabled", "true")
     val rpcEnv = createRpcEnv("test")
     val serializer = new KryoSerializer(conf)
-    val tracker = newTrackerMaster()
+    val tracker = newTrackerMaster(conf)
     tracker.trackerEndpoint = rpcEnv.setupEndpoint(MapOutputTracker.ENDPOINT_NAME,
       new MapOutputTrackerMasterEndpoint(rpcEnv, tracker, conf))
     tracker.registerShuffle(10, 2)
