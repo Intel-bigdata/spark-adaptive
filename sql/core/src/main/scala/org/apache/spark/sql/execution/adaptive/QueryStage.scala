@@ -119,58 +119,47 @@ abstract class QueryStage extends UnaryExecNode {
       case input: ShuffleQueryStageInput if !input.isLocalShuffle => input
     }
 
-    val skewedShuffleQueryStageInputs: Seq[SkewedShuffleQueryStageInput] = child.collect {
-      case input: SkewedShuffleQueryStageInput => input
-    }
-
-    val leafNodes = child.collect {
-      case s: SparkPlan if s.children.isEmpty => s
-    }
-
-    // Ensure all leaf nodes are shuffle query stages
-    if (leafNodes.length == queryStageInputs.length + skewedShuffleQueryStageInputs.length) {
-      val childMapOutputStatistics = queryStageInputs.map(_.childStage.mapOutputStatistics)
+    val childMapOutputStatistics = queryStageInputs.map(_.childStage.mapOutputStatistics)
         .filter(_ != null).toArray
-      // Right now, Adaptive execution only support HashPartitionings and the same number of
-      // pre-shuffle partitions for those stages.
+    // Right now, Adaptive execution only support HashPartitionings and the same number of
+    // pre-shuffle partitions for those stages.
 
-      // Check partitionings
-      val partitioningsCheck = queryStageInputs.forall {
-        _.outputPartitioning match {
-          case hash: HashPartitioning => true
-          case collection: PartitioningCollection =>
-            collection.partitionings.forall(_.isInstanceOf[HashPartitioning])
-          case _ => false
-        }
+    // Check partitionings
+    val partitioningsCheck = queryStageInputs.forall {
+      _.outputPartitioning match {
+        case hash: HashPartitioning => true
+        case collection: PartitioningCollection =>
+          collection.partitionings.forall(_.isInstanceOf[HashPartitioning])
+        case _ => false
       }
+    }
 
-      // Check pre-shuffle partitions num
-      val numPreShufflePartitionsCheck =
-        childMapOutputStatistics.map(stats => stats.bytesByPartitionId.length).distinct.length == 1
+    // Check pre-shuffle partitions num
+    val numPreShufflePartitionsCheck =
+    childMapOutputStatistics.map(stats => stats.bytesByPartitionId.length).distinct.length == 1
 
-      if (childMapOutputStatistics.length > 0
-        && partitioningsCheck && numPreShufflePartitionsCheck) {
-        val exchangeCoordinator = new ExchangeCoordinator(
-          conf.targetPostShuffleInputSize,
-          conf.adaptiveTargetPostShuffleRowCount,
-          conf.minNumPostShufflePartitions)
+    if (childMapOutputStatistics.length > 0
+      && partitioningsCheck && numPreShufflePartitionsCheck) {
+      val exchangeCoordinator = new ExchangeCoordinator(
+        conf.targetPostShuffleInputSize,
+        conf.adaptiveTargetPostShuffleRowCount,
+        conf.minNumPostShufflePartitions)
 
         if (queryStageInputs.length == 2 && queryStageInputs.forall(_.skewedPartitions.isDefined)) {
           // If a skewed join is detected and optimized, we will omit the skewed partitions when
           // estimate the partition start and end indices.
           val (partitionStartIndices, partitionEndIndices) =
-            exchangeCoordinator.estimatePartitionStartEndIndices(
-              childMapOutputStatistics, queryStageInputs(0).skewedPartitions.get)
+          exchangeCoordinator.estimatePartitionStartEndIndices(
+            childMapOutputStatistics, queryStageInputs(0).skewedPartitions.get)
           queryStageInputs.foreach { i =>
             i.partitionStartIndices = Some(partitionStartIndices)
             i.partitionEndIndices = Some(partitionEndIndices)
           }
-        } else {
+        } else if (queryStageInputs.length > 1) {
           val partitionStartIndices =
             exchangeCoordinator.estimatePartitionStartIndices(childMapOutputStatistics)
           queryStageInputs.foreach(_.partitionStartIndices = Some(partitionStartIndices))
         }
-      }
     }
 
     // 3. Codegen and update the UI

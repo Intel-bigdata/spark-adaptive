@@ -331,6 +331,39 @@ class QueryStageSuite extends SparkFunSuite with BeforeAndAfterAll {
     }
   }
 
+  test("fix the skewed join result issue ") {
+    val spark = defaultSparkSession
+
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_ALLOW_ADDITIONAL_SHUFFLE.key, "true")
+    spark.conf.set(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key, 81)
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_SKEWED_JOIN_ENABLED.key, "true")
+    spark.conf.set(SQLConf.ADAPTIVE_EXECUTION_SKEWED_PARTITION_ROW_COUNT_THRESHOLD.key, 10)
+
+    withSparkSession(spark) { spark: SparkSession =>
+      val df1 =
+        spark
+          .range(0, 15000, 1, numInputPartitions)
+          .selectExpr("id % 1 as key1", "id as value1")
+      val df2 =
+        spark
+          .range(0, 1500, 1, numInputPartitions)
+          .selectExpr("id % 1 as key2", "id as value2")
+      val df3 =
+        spark
+          .range(0, 10, 1, numInputPartitions)
+          .selectExpr("id % 5 as key3", "id as value3")
+
+      val join =
+        df1
+          .join(df2, col("key1") === col("key2"), "leftSemi")
+          .join(df3, col("key1") === col("key3"), "leftSemi")
+          .select(col("key1"), col("value1"))
+
+      assert(join.count() === 15000)
+    }
+  }
+
+
   test("One of two sort merge leftSemi joins to broadcast join") {
     // t1 is smaller than spark.sql.adaptiveBroadcastJoinThreshold
     // t2 and t3 are greater than spark.sql.adaptiveBroadcastJoinThreshold
